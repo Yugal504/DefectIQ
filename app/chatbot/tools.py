@@ -7,10 +7,42 @@ Each tool returns a structured dict: {summary, count, rows, extra}.
 from __future__ import annotations
 
 from collections import Counter
+from datetime import datetime
 from typing import Optional
 
 from ..models import ConsolidatedDefect
+from ..reconciliation import _classify
 from ..store import DefectStore
+
+# Accepted date/datetime formats across GitHub (ISO Z) and Smartsheet.
+_DT_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d",
+    "%m/%d/%Y %I:%M:%S %p",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y",
+)
+
+
+def _parse_dt(value) -> Optional[datetime]:
+    """Parse a GitHub/Smartsheet date string into a datetime (date-level ok)."""
+    if value is None:
+        return None
+    s = str(value).strip().replace("Z", "")
+    if not s:
+        return None
+    if "T" in s:
+        s = s.split(".")[0]
+    for fmt in _DT_FORMATS:
+        try:
+            return datetime.strptime(s, fmt)
+        except ValueError:
+            continue
+    try:
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
 
 # Compact row projection for responses / tables.
 ROW_FIELDS = [
@@ -255,6 +287,97 @@ class DefectTools:
             "extra": {},
         }
 
+    def defects_by_date(
+        self,
+        status: Optional[str] = None,
+        source: Optional[str] = None,
+        date_field: str = "updated",
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        granularity: str = "total",
+    ) -> dict:
+        """Count defects filtered by a date range on a created/updated date.
+
+        source: 'smartsheet' queries ALL Smart Sheet Export rows; 'github'/None
+        queries the consolidated (GitHub-driven) defects. date_field is
+        'created' or 'updated' (updated = GitHub Last Updated / Smartsheet
+        Modified). start_date/end_date are 'YYYY-MM-DD' inclusive. granularity
+        'daily' returns a date-by-date breakdown.
+        """
+        src = (source or "").strip().lower()
+        field = (date_field or "updated").strip().lower()
+        start = _parse_dt(start_date)
+        end = _parse_dt(end_date)
+        want_status = (status or "").strip().lower() or None
+
+        # Build (label, status_text, date) tuples depending on the source.
+        records: list[tuple[str, Optional[str], Optional[datetime]]] = []
+        if src in {"smartsheet", "smart sheet", "ss"}:
+            scope = "Smartsheet"
+            for r in self.store.raw_smartsheet_rows():
+                dt = _parse_dt(r.get("created") if field == "created" else r.get("modified"))
+                records.append((r.get("action_id") or "", r.get("status"), dt))
+        else:
+            scope = "GitHub" if src == "github" else "consolidated"
+            for d in self.store.all():
+                if field == "created":
+                    dt = _parse_dt(d.github_created or d.created_date)
+                else:
+                    dt = _parse_dt(d.github_last_updated or d.last_updated)
+                records.append((d.github_issue_id or d.record_id, d.consolidated_status, dt))
+
+        def status_ok(text: Optional[str]) -> bool:
+            if not want_status:
+                return True
+            return _classify(text) == _classify(want_status)
+
+        def date_ok(dt: Optional[datetime]) -> bool:
+            if dt is None:
+                return False
+            if start and dt.date() < start.date():
+                return False
+            if end and dt.date() > end.date():
+                return False
+            return True
+
+        matched = [(label, dt) for (label, st, dt) in records if status_ok(st) and date_ok(dt)]
+        total = len(matched)
+
+        label_bits = []
+        if want_status:
+            label_bits.append(f"'{status}'")
+        label_bits.append(scope if scope != "consolidated" else "")
+        rng = ""
+        if start and end:
+            rng = f" between {start.date()} and {end.date()}"
+        elif start:
+            rng = f" on/after {start.date()}"
+        elif end:
+            rng = f" on/before {end.date()}"
+        desc = " ".join(b for b in label_bits if b).strip()
+        on = "created" if field == "created" else "last updated/modified"
+
+        if (granularity or "total").strip().lower() == "daily":
+            by_day: Counter = Counter()
+            for _, dt in matched:
+                by_day[dt.date().isoformat()] += 1
+            rows = [{"label": day, "count": by_day[day]} for day in sorted(by_day)]
+            top = "; ".join(f"{d}: {c}" for d, c in list(sorted(by_day.items()))[-7:])
+            return {
+                "summary": f"{total} {desc} defect(s){rng} (by {on}), day by day: {top}."
+                if total else f"No {desc} defects found{rng} (by {on}).",
+                "count": total,
+                "rows": rows,
+                "extra": {},
+            }
+        return {
+            "summary": f"{total} {desc} defect(s){rng} (by {on})."
+            if total else f"No {desc} defects found{rng} (by {on}).",
+            "count": total,
+            "rows": [],
+            "extra": {},
+        }
+
 
 # ------------------------------------------------------------- tool schemas
 # JSON schemas for Azure OpenAI function-calling.
@@ -380,6 +503,32 @@ TOOL_SCHEMAS = [
                 "type": "object",
                 "properties": {"text": {"type": "string"}, "limit": {"type": "integer"}},
                 "required": ["text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "defects_by_date",
+            "description": (
+                "Count defects within a date range, optionally day-by-day. Use for any "
+                "time-based question (this week, since a date, in a month, created/closed on dates). "
+                "Compute concrete calendar dates yourself from today's date and pass them as "
+                "YYYY-MM-DD. 'source'='smartsheet' uses all Smartsheet entries; 'github' (or omit) "
+                "uses GitHub/consolidated defects. 'date_field'='updated' means GitHub Last Updated "
+                "or Smartsheet Modified (use this as the closed date); 'created' means creation date. "
+                "Set granularity='daily' for a date-by-date breakdown."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "status": {"type": "string", "description": "Open, In Progress, or Closed"},
+                    "source": {"type": "string", "enum": ["smartsheet", "github"]},
+                    "date_field": {"type": "string", "enum": ["created", "updated"]},
+                    "start_date": {"type": "string", "description": "Inclusive start, YYYY-MM-DD"},
+                    "end_date": {"type": "string", "description": "Inclusive end, YYYY-MM-DD"},
+                    "granularity": {"type": "string", "enum": ["total", "daily"]},
+                },
             },
         },
     },

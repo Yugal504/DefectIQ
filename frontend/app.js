@@ -279,6 +279,9 @@ function buildVisual(data) {
     const key = Object.keys(rows[0]).find((x) => x !== "count") || "label";
     const r = rows.slice(0, 10);
     html += chart({ labels: r.map((x) => x[key]), values: r.map((x) => x.count), orient: "h" });
+  } else if (tool === "defects_by_date") {
+    // daily rows are handled by the distribution branch above; this is the total case
+    html += statRow([[(data.args && data.args.status) || "Defects", data.count]]);
   } else if (tool === "count_defects") {
     const a = data.args || {};
     const lbl = a.status || a.source || a.developer || a.priority || "Defects";

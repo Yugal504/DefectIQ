@@ -23,6 +23,11 @@ class ConsolidatedDefect(BaseModel):
     github_priority: Optional[str] = None
     created_date: Optional[str] = None
     last_updated: Optional[str] = None
+    # Source-specific dates (kept separate so date queries can target a system)
+    github_created: Optional[str] = None
+    github_last_updated: Optional[str] = None  # "Git Issue Last Updated"
+    customer_created: Optional[str] = None  # Smartsheet Created
+    customer_modified: Optional[str] = None  # Smartsheet Modified
     development_progress: Optional[str] = None  # promotion status / project status
     latest_comment: Optional[str] = None
     module: Optional[str] = None
