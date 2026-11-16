@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DefectIQ · NTT DATA</title>
-  <link rel="stylesheet" href="/static/styles.css?v=16" />
+  <link rel="stylesheet" href="/static/styles.css?v=21" />
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
@@ -108,16 +108,16 @@
           <div class="table-wrap">
             <table id="defect-table">
               <thead><tr>
-                <th data-sort="customer_defect_id">Cust. ID</th>
                 <th data-sort="github_issue_id">GitHub ID</th>
                 <th data-sort="defect_title">Title</th>
-                <th data-sort="customer_status">Cust. Status</th>
                 <th data-sort="github_status">GitHub Status</th>
                 <th data-sort="consolidated_status">Status</th>
                 <th data-sort="assigned_developer">Owner</th>
                 <th data-sort="priority">Priority</th>
                 <th data-sort="issue_source">Issue Source</th>
                 <th data-sort="source_availability">Link</th>
+                <th data-sort="customer_defect_id">Smartsheet ID</th>
+                <th data-sort="customer_status">Smart Sheet Status</th>
                 <th>Actions</th>
               </tr></thead>
               <tbody id="defect-tbody"></tbody>
@@ -164,6 +164,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=16"></script>
+  <script src="/static/app.js?v=21"></script>
 </body>
 </html>
