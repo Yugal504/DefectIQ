@@ -4,14 +4,14 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DefectIQ · NTT DATA</title>
-  <link rel="stylesheet" href="/static/styles.css?v=11" />
+  <link rel="stylesheet" href="/static/styles.css?v=16" />
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
 </head>
 <body>
   <!-- ===================== LOGIN ===================== -->
   <div id="login" class="login-wrap">
     <form id="login-form" class="login-card">
-      <div class="ntt-logo lg">NTT DATA</div>
+      <div class="ntt-logo lg"><img src="/static/images/nttdata-blue-logo.svg" alt="NTT DATA" /></div>
       <div class="product-name">Defect<span>IQ</span></div>
       <p class="muted">Agentic AI Defect Management</p>
       <label>Username</label>
@@ -32,7 +32,7 @@
     <!-- Top bar: brand + nav tabs + controls -->
     <header class="topbar">
       <div class="topbar-left">
-        <span class="ntt-logo">NTT DATA</span>
+        <span class="ntt-logo"><img src="/static/images/nttdata-blue-logo.svg" alt="NTT DATA" /></span>
         <span class="divider"></span>
         <span class="product-name top">Defect<span>IQ</span></span>
       </div>
@@ -103,7 +103,7 @@
             <select id="f-validation" class="input"><option value="">All validation</option><option>Matched</option><option>Missing</option><option>Duplicate</option><option>Requires Review</option></select>
             <input id="f-developer" class="input" placeholder="Owner" />
             <input id="f-priority" class="input" placeholder="Priority" />
-            <button id="btn-apply" class="btn btn-primary">Filter</button>
+            <button id="btn-apply" class="btn btn-primary">Apply</button>
           </div>
           <div class="table-wrap">
             <table id="defect-table">
@@ -164,6 +164,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=11"></script>
+  <script src="/static/app.js?v=16"></script>
 </body>
 </html>

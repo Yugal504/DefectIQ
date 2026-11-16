@@ -52,6 +52,12 @@ function switchView(view) {
   $$(".tab").forEach((n) => n.classList.toggle("active", n.dataset.view === view));
   $$(".view").forEach((v) => v.classList.add("hidden"));
   $("#view-" + view).classList.remove("hidden");
+  if (view === "dashboard") {
+    if (chartsNeedRender && chartData) {
+      renderCharts();
+      chartsNeedRender = false;
+    } else resizeDashboardCharts();
+  }
   if (view === "defects") loadDefects();
   if (view === "audit") loadAudit();
 }
@@ -79,23 +85,38 @@ const KPI_STATUS = [
   ["closed_defects", "Closed", "k-closed"],
   ["unassigned_defects", "Unassigned", "k-unassigned"],
 ];
-const PLOT_CFG = { displayModeBar: false, responsive: true };
+const PLOT_CFG = { displayModeBar: false, responsive: true, scrollZoom: false, doubleClick: false };
+const NO_ZOOM_AXES = { dragmode: false, xaxis: { fixedrange: true }, yaxis: { fixedrange: true } };
 const PAL = ["#0a66c2", "#17a673", "#e0a800", "#d9534f", "#6f42c1", "#0b1f3a", "#00b2a9", "#fd7e14", "#20c997", "#8e44ad"];
 const EMPTY_LABELS = ["(none)", "unspecified", "unknown", "(unassigned)", "n/a", ""];
 const isEmptyLabel = (lbl) => EMPTY_LABELS.includes(String(lbl ?? "").trim().toLowerCase());
-let chartData = null;
+const DASH_CHART_IDS = ["chart-status", "chart-issuesource", "chart-source", "chart-priority", "chart-validation", "chart-dev", "chart-module"];
+let chartData = null, chartsNeedRender = false;
+function resizeDashboardCharts() {
+  requestAnimationFrame(() => {
+    DASH_CHART_IDS.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el && el.data) Plotly.Plots.resize(id);
+    });
+  });
+}
 async function loadDashboard() {
   const k = await apiJSON("/api/kpis"); setFreshness(k);
   const card = ([key, label, cls], val) => `<div class="kpi ${cls}"><div class="num">${val ?? k[key] ?? 0}</div><div class="lbl">${label}</div></div>`;
   $("#kpi-cards").innerHTML = KPI_DEFS.map((d) => card(d)).join("");
   $("#kpi-status").innerHTML = KPI_STATUS.map((d) => card(d)).join("");
   chartData = await apiJSON("/api/charts");
+  if ($("#view-dashboard").classList.contains("hidden")) {
+    chartsNeedRender = true;
+    return;
+  }
+  chartsNeedRender = false;
   renderCharts();
 }
 function renderCharts() {
   const c = chartData; if (!c) return;
   const showEmpty = $("#toggle-empty").checked;
-  const L = { margin: { t: 10, r: 10, b: 40, l: 40 }, font: { size: 11 }, showlegend: false };
+  const L = { margin: { t: 10, r: 10, b: 40, l: 40 }, font: { size: 11 }, showlegend: false, ...NO_ZOOM_AXES };
   const clean = (a) => (showEmpty ? a : (a || []).filter((x) => !isEmptyLabel(x[0])));
   const pairs = (a) => { const f = clean(a); return { labels: f.map((x) => x[0]), values: f.map((x) => x[1]) }; };
   const colors = (n) => Array.from({ length: n }, (_, i) => PAL[i % PAL.length]);
@@ -114,11 +135,15 @@ function renderCharts() {
   const ownerNames = d.labels.map(owner);
   Plotly.newPlot("chart-dev", [
     { type: "bar", orientation: "h", y: ownerNames.slice().reverse(), x: d.values.slice().reverse(), marker: { color: colors(d.labels.length).reverse() }, hovertemplate: "%{y}: %{x}<extra></extra>" },
-  ], { ...L, margin: { t: 10, r: 10, b: 30, l: 10 }, xaxis: { gridcolor: "#eef2f7", zeroline: false }, yaxis: { automargin: true } }, PLOT_CFG);
+  ], { ...L, margin: { t: 10, r: 10, b: 30, l: 10 }, xaxis: { gridcolor: "#eef2f7", zeroline: false, fixedrange: true }, yaxis: { automargin: true, fixedrange: true } }, PLOT_CFG);
   d = pairs(c.module_distribution);
   Plotly.newPlot("chart-module", [{ type: "bar", x: d.labels, y: d.values, marker: { color: colors(d.labels.length) } }], { ...L, margin: { t: 10, r: 10, b: 90, l: 40 } }, PLOT_CFG);
+  resizeDashboardCharts();
 }
 document.addEventListener("change", (e) => { if (e.target && e.target.id === "toggle-empty") renderCharts(); });
+window.addEventListener("resize", () => {
+  if (!$("#view-dashboard").classList.contains("hidden")) resizeDashboardCharts();
+});
 
 /* ----------------------------- Defects ----------------------------- */
 function statusPill(s) { const cls = { "Open": "p-open", "In Progress": "p-inprogress", "Closed": "p-closed" }[s] || "p-unknown"; return `<span class="pill ${cls}">${s || "—"}</span>`; }
@@ -136,7 +161,7 @@ async function loadDefects() {
   $("#defect-tbody").innerHTML = data.items.map((d) => `
     <tr data-id="${d.record_id}">
       <td>${esc(d.customer_defect_id)}</td>
-      <td>${d.github_url ? `<a href="${d.github_url}" target="_blank">#${esc(d.github_issue_id)}</a>` : esc(d.github_issue_id)}</td>
+      <td>${d.github_issue_id ? `<a href="#" class="gh-link">#${esc(d.github_issue_id)}</a>` : esc(d.github_issue_id) || "—"}</td>
       <td title="${esc(d.defect_title)}">${esc(d.defect_title)}</td>
       <td>${esc(d.customer_status)}</td><td>${esc(d.github_status)}</td>
       <td>${statusPill(d.consolidated_status)}</td>
@@ -152,7 +177,10 @@ async function loadDefects() {
   $("#pg-prev").disabled = data.page <= 1; $("#pg-next").disabled = data.page >= data.pages;
 }
 $("#defect-tbody").addEventListener("click", (e) => {
-  const btn = e.target.closest("button"); const tr = e.target.closest("tr"); if (!tr) return;
+  const tr = e.target.closest("tr");
+  if (!tr) return;
+  if (e.target.closest("a")) e.preventDefault();
+  const btn = e.target.closest("button");
   const id = tr.dataset.id;
   if (!btn) { openDetail(id); return; }
   const a = btn.dataset.act;
@@ -180,7 +208,7 @@ async function openDetail(id) {
     ["Issue Source", d.issue_source], ["Module", d.module], ["NTT Category", d.ntt_category], ["Link", d.source_availability === "Both" ? "Linked to GitHub" : "Not linked"],
     ["Data Validation", d.data_validation_status], ["Created", d.created_date], ["Last Updated", d.last_updated],
     ["Development Progress", d.development_progress], ["Latest Comment", d.latest_comment], ["Description", d.description]];
-  $("#modal-body").innerHTML = rows.map(([k, v]) => `<div class="detail-row"><div class="k">${k}</div><div>${esc(v) || "—"}</div></div>`).join("") +
+  $("#modal-body").innerHTML = rows.map(([k, v]) => `<div class="detail-row"><div class="k">${k}</div><div class="detail-value">${esc(v) || "—"}</div></div>`).join("") +
     (d.github_url ? `<div style="margin-top:14px"><a class="btn" href="${d.github_url}" target="_blank">Open in GitHub ↗</a></div>` : "");
   $("#modal").classList.remove("hidden");
 }
@@ -242,7 +270,7 @@ $("#exp-issues").addEventListener("click", () => fetchDownload("/api/export/sour
 /* ----------------------------- Chat (docked, visual-first, interactive) ----------------------------- */
 const SUGGESTIONS = ["Defect summary", "How many are open?", "Owner-wise distribution", "By issue source", "Unassigned defects", "Any duplicates?"];
 const LIST_TOOLS = ["list_defects", "unassigned_defects", "reconciliation_gaps", "search_defects", "defect_detail"];
-let chatHistory = [], chatInit = false, chartSeq = 0;
+let chatHistory = [], chatInit = false, chartSeq = 0, chatPending = false;
 function initChat() {
   if (chatInit) return; chatInit = true;
   $("#chat-suggestions").innerHTML = SUGGESTIONS.map((s) => `<button>${s}</button>`).join("");
@@ -266,6 +294,51 @@ function miniTable(rows) {
   const more = rows.length > 7 ? `<div class="more">+ ${rows.length - 7} more — refine your question to see others</div>` : "";
   return `<table class="mini"><thead>${head}</thead><tbody>${body}</tbody></table>${more}`;
 }
+function distChartPairs(rows) {
+  return rows.slice(0, 10).map((row) => {
+    if (!row || typeof row !== "object") return null;
+    let label = row.label ?? row.developer ?? row.issue_source;
+    if (label == null) {
+      const k = Object.keys(row).find((x) => x !== "count");
+      label = k ? row[k] : "";
+    }
+    return { label: String(label ?? ""), value: Number(row.count) || 0 };
+  }).filter(Boolean);
+}
+function miniChartLayout(c, horiz) {
+  const maxV = Math.max(1, ...c.values.map((v) => Number(v) || 0));
+  const yTop = Math.ceil(maxV * 1.12);
+  const base = { font: { size: 10 }, height: 200, dragmode: false, bargap: 0.28, showlegend: false };
+  if (horiz) {
+    return {
+      ...base,
+      margin: { t: 6, r: 10, b: 30, l: 120 },
+      xaxis: { fixedrange: true, rangemode: "tozero", range: [0, yTop], showgrid: true, gridcolor: "#eef2f7" },
+      yaxis: { fixedrange: true, automargin: true },
+    };
+  }
+  const many = c.labels.length > 5;
+  return {
+    ...base,
+    margin: { t: 6, r: 8, b: many ? 72 : 48, l: 44 },
+    xaxis: { fixedrange: true, automargin: true, tickangle: many ? -35 : -20 },
+    yaxis: { fixedrange: true, rangemode: "tozero", range: [0, yTop], showgrid: true, gridcolor: "#eef2f7", zeroline: false },
+  };
+}
+function renderMiniChart(c) {
+  const horiz = c.orient === "h";
+  const values = c.values.map((v) => Number(v) || 0);
+  const labels = c.labels.map((l) => String(l));
+  const cols = labels.map((_, i) => PAL[i % PAL.length]);
+  const trace = horiz
+    ? { type: "bar", orientation: "h", y: labels.slice().reverse(), x: values.slice().reverse(), marker: { color: cols.slice().reverse() } }
+    : { type: "bar", x: labels, y: values, marker: { color: cols } };
+  const layout = miniChartLayout({ labels, values }, horiz);
+  requestAnimationFrame(() => {
+    if (!document.getElementById(c.id)) return;
+    Plotly.newPlot(c.id, [trace], layout, PLOT_CFG).then(() => Plotly.Plots.resize(c.id));
+  });
+}
 function buildVisual(data) {
   if (!data) return { html: "", charts: [] };
   const rows = data.rows || [], extra = data.extra || {}, tool = data.tool || (data.meta && data.meta.tool);
@@ -274,11 +347,14 @@ function buildVisual(data) {
   if (tool === "summary" && extra.total_defects != null) {
     html += statRow([["Total", extra.total_defects], ["Open", extra.open_defects], ["In Prog", extra.in_progress], ["Closed", extra.closed_defects]]);
     html += chart({ labels: ["Open", "In Progress", "Closed"], values: [extra.open_defects, extra.in_progress, extra.closed_defects], orient: "v" });
-  } else if (rows[0] && "count" in rows[0]) {
-    // Any distribution: developer_distribution ({developer,count}) or defect_distribution ({label,count})
-    const key = Object.keys(rows[0]).find((x) => x !== "count") || "label";
-    const r = rows.slice(0, 10);
-    html += chart({ labels: r.map((x) => x[key]), values: r.map((x) => x.count), orient: "h" });
+  } else if (rows[0] && typeof rows[0] === "object" && "count" in rows[0]) {
+    const pairs = distChartPairs(rows);
+    const useHoriz = tool === "developer_distribution" || pairs.length > 6;
+    html += chart({
+      labels: pairs.map((p) => p.label),
+      values: pairs.map((p) => p.value),
+      orient: useHoriz ? "h" : "v",
+    });
   } else if (tool === "defects_by_date") {
     // daily rows are handled by the distribution branch above; this is the total case
     html += statRow([[(data.args && data.args.status) || "Defects", data.count]]);
@@ -298,24 +374,44 @@ function addBotMessage(text, data) {
   const vis = buildVisual(data);
   el.innerHTML = `<div class="headline">${esc(text)}</div>` + vis.html;
   $("#chat-log").appendChild(el); $("#chat-log").scrollTop = 1e9;
-  vis.charts.forEach((c) => {
-    const horiz = c.orient === "h";
-    const cols = c.labels.map((_, i) => PAL[i % PAL.length]);
-    const trace = horiz
-      ? { type: "bar", orientation: "h", y: c.labels.slice().reverse(), x: c.values.slice().reverse(), marker: { color: cols.slice().reverse() } }
-      : { type: "bar", x: c.labels, y: c.values, marker: { color: cols } };
-    Plotly.newPlot(c.id, [trace], { margin: horiz ? { t: 6, r: 6, b: 24, l: 120 } : { t: 6, r: 6, b: 30, l: 34 }, font: { size: 10 }, height: 200 }, PLOT_CFG);
-  });
+  vis.charts.forEach((c) => renderMiniChart(c));
   el.querySelectorAll("table.mini tbody tr").forEach((tr) => tr.addEventListener("click", () => { if (tr.dataset.rid) openDetail(tr.dataset.rid); }));
 }
+function showChatLoader() {
+  const el = document.createElement("div");
+  el.className = "msg bot loading";
+  el.setAttribute("aria-live", "polite");
+  el.innerHTML = '<div class="chat-loader" role="status"><span class="chat-spinner" aria-hidden="true"></span><span class="chat-loader-text">Thinking…</span></div>';
+  $("#chat-log").appendChild(el);
+  $("#chat-log").scrollTop = 1e9;
+  return el;
+}
 async function sendChat() {
-  const text = $("#chat-text").value.trim(); if (!text) return;
-  $("#chat-text").value = ""; addUserMessage(text); chatHistory.push({ role: "user", content: text });
-  const thinking = document.createElement("div"); thinking.className = "msg bot"; thinking.textContent = "…"; $("#chat-log").appendChild(thinking);
+  const text = $("#chat-text").value.trim();
+  if (!text || chatPending) return;
+  chatPending = true;
+  const input = $("#chat-text");
+  const sendBtn = $("#chat-form button");
+  input.disabled = true;
+  sendBtn.disabled = true;
+  input.value = "";
+  addUserMessage(text);
+  chatHistory.push({ role: "user", content: text });
+  const thinking = showChatLoader();
   try {
     const resp = await apiJSON("/api/chat", { method: "POST", body: JSON.stringify({ message: text, history: chatHistory.slice(-8) }) });
-    thinking.remove(); addBotMessage(resp.reply, resp.data); chatHistory.push({ role: "assistant", content: resp.reply });
-  } catch (e) { thinking.remove(); addBotMessage("Sorry, I hit an error: " + e.message, null); }
+    thinking.remove();
+    addBotMessage(resp.reply, resp.data);
+    chatHistory.push({ role: "assistant", content: resp.reply });
+  } catch (e) {
+    thinking.remove();
+    addBotMessage("Sorry, I hit an error: " + e.message, null);
+  } finally {
+    chatPending = false;
+    input.disabled = false;
+    sendBtn.disabled = false;
+    input.focus();
+  }
 }
 
 /* ----------------------------- Audit ----------------------------- */

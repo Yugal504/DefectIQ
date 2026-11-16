@@ -4,16 +4,23 @@
   --red:#d9534f; --purple:#6f42c1; --ntt:#004a9f;
   --shadow:0 1px 3px rgba(16,36,64,.08),0 4px 14px rgba(16,36,64,.06);
 }
-*{box-sizing:border-box}
+*{box-sizing:border-box;scrollbar-width:thin;scrollbar-color:#0a66c2 var(--bg)}
+*::-webkit-scrollbar{width:10px;height:10px}
+*::-webkit-scrollbar-track{background:var(--bg);border-radius:8px}
+*::-webkit-scrollbar-thumb{background:#0a66c2;border-radius:8px;border:2px solid var(--bg)}
+*::-webkit-scrollbar-thumb:hover{background:#0953a0}
+*::-webkit-scrollbar-corner{background:var(--bg)}
 body{margin:0;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var(--text);font-size:14px;
   background:linear-gradient(135deg,#eef3fb 0%,#e4ebf5 55%,#dfe7f2 100%);background-attachment:fixed}
 .hidden{display:none !important}
 .muted{color:var(--muted)} .small{font-size:12px}
 .error{color:var(--red);margin-top:8px;min-height:18px;font-size:13px}
 
-/* NTT DATA wordmark: company name as plain styled text (space only, no separators) */
-.ntt-logo{font-weight:800;letter-spacing:2px;color:var(--ntt);font-size:20px}
-.ntt-logo.lg{font-size:30px;display:block}
+/* NTT DATA logo (frontend/images/ → /static/images/) */
+.ntt-logo{display:inline-flex;align-items:center;line-height:0}
+.ntt-logo img{display:block;height:30px;width:auto;max-width:min(180px,42vw)}
+.ntt-logo.lg{display:block;margin-bottom:4px}
+.ntt-logo.lg img{height:38px;max-width:100%}
 .product-name{font-weight:800;font-size:26px;color:var(--navy);margin-top:12px}
 .product-name span{color:var(--accent2)}
 .product-name.top{font-size:20px;margin:0}
@@ -57,7 +64,7 @@ body{margin:0;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var
 .status-row{grid-template-columns:repeat(4,1fr);margin-bottom:16px}
 
 /* kpi */
-.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-bottom:16px}
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px;margin-bottom:16px}
 .kpi{background:var(--card);border-radius:12px;padding:15px;box-shadow:var(--shadow);border-left:4px solid var(--accent)}
 .kpi .num{font-size:26px;font-weight:800;line-height:1}
 .kpi .lbl{color:var(--muted);font-size:11.5px;margin-top:6px;text-transform:uppercase;letter-spacing:.3px}
@@ -79,11 +86,11 @@ body{margin:0;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var
 .switch input:focus-visible + .switch-track{box-shadow:0 0 0 3px rgba(10,102,194,.3)}
 
 /* charts */
-.chart-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;grid-auto-rows:1fr}
-.card{background:var(--card);border-radius:12px;padding:14px;box-shadow:var(--shadow)}
+.chart-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;grid-auto-rows:1fr;min-width:0}
+.card{background:var(--card);border-radius:12px;padding:14px;box-shadow:var(--shadow);min-width:0;overflow:hidden}
 .card.wide{grid-column:1/-1}
 .card h3{margin:0 0 8px;font-size:13.5px;color:var(--navy)}
-.chart{width:100%;height:240px}
+.chart{width:100%;max-width:100%;height:240px;min-width:0;overflow:hidden}
 
 /* defects */
 .defects-actionbar{display:flex;align-items:center;justify-content:space-between;background:#fff;padding:14px 16px;border-radius:12px;box-shadow:var(--shadow);margin-bottom:12px}
@@ -97,6 +104,8 @@ table{width:100%;border-collapse:collapse;font-size:13px}
 th,td{padding:10px 12px;text-align:left;border-bottom:1px solid var(--border);white-space:nowrap;max-width:300px;overflow:hidden;text-overflow:ellipsis}
 th{background:#f7f9fc;position:sticky;top:0;cursor:pointer;font-size:12px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted)}
 tbody tr:hover{background:#f6faff}
+#defect-table a.gh-link{color:var(--accent);font-weight:600;text-decoration:none}
+#defect-table a.gh-link:hover{text-decoration:underline;color:#0953a0}
 .pill{padding:3px 9px;border-radius:20px;font-size:11px;font-weight:600;display:inline-block}
 .p-open{background:#fff4d6;color:#8a6d00} .p-inprogress{background:#e2efff;color:#1657b5}
 .p-closed{background:#dcf4ea;color:#0f7a52} .p-unknown{background:#eee;color:#666}
@@ -128,6 +137,12 @@ tbody tr:hover{background:#f6faff}
 .msg.bot{align-self:flex-start;background:#fff;border:1px solid #e7eef7;border-bottom-left-radius:4px;width:90%}
 .msg.bot::before{content:"IQ";position:absolute;top:-9px;left:12px;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;font-size:9px;font-weight:800;padding:2px 6px;border-radius:6px}
 .msg.bot .headline{font-weight:600;margin:4px 0 2px;color:var(--navy)}
+.msg.bot.loading{padding:14px 16px;min-width:140px}
+.chat-loader{display:flex;align-items:center;gap:10px}
+.chat-spinner{width:18px;height:18px;border:2px solid #dce8fb;border-top-color:var(--accent);border-radius:50%;animation:chat-spin .7s linear infinite;flex:0 0 auto}
+.chat-loader-text{font-size:13px;color:var(--navy2);font-weight:500}
+@keyframes chat-spin{to{transform:rotate(360deg)}}
+.chat-input input:disabled,.chat-input .btn:disabled{opacity:.55;cursor:not-allowed}
 .msg .mini-chart{width:100%;height:200px;margin-top:10px;background:#fbfcfe;border-radius:10px;border:1px solid #eef2f7}
 .stat-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
 .stat{background:linear-gradient(135deg,#f4f8ff,#eaf1fb);border:1px solid #e1ebf8;border-radius:10px;padding:10px 12px;text-align:center;flex:1;min-width:70px}
@@ -156,6 +171,7 @@ tbody tr:hover{background:#f6faff}
 .form-grid input,.form-grid select,.form-grid textarea{width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;font-size:13px;font-family:inherit}
 .detail-row{display:flex;padding:7px 0;border-bottom:1px solid var(--border);font-size:13px}
 .detail-row .k{width:170px;color:var(--muted);flex-shrink:0}
+.detail-row .detail-value{word-break:break-word;}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}
 .toast{position:fixed;bottom:24px;right:24px;background:var(--navy);color:#fff;padding:12px 18px;border-radius:10px;box-shadow:var(--shadow);z-index:60}
 .perm-hide{display:none !important}
