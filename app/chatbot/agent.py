@@ -27,6 +27,11 @@ SYSTEM_PROMPT = (
     "- You MUST call a tool for EVERY question about defects before answering; never answer "
     "a defect question from memory. For 'by X' / 'breakdown' / 'distribution' questions use "
     "defect_distribution with the right group_by.\n"
+    "- For ANY time/date question (this week, since/after a date, in a month, created/closed "
+    "on dates, date-by-date), call defects_by_date. Convert relative dates to concrete "
+    "YYYY-MM-DD using TODAY'S DATE given below (week starts Monday). Use date_field='updated' "
+    "as the closed/last-updated date, 'created' for creation. Set granularity='daily' when the "
+    "user wants it day by day. Use source='smartsheet' for Smartsheet-entry questions.\n"
     "- Base every fact ONLY on the tool results; never invent ids, counts, statuses or owners.\n"
     "- Use the EXACT 'count' / numbers returned by the tool verbatim. Never re-estimate or "
     "round; if the tool says 346, say 346.\n"
@@ -105,7 +110,15 @@ class DefectAgent:
 
     # ----------------------------------------------------------------- llm mode
     def _answer_llm(self, message: str, history: list[dict], refreshed: str | None) -> ChatResponse:
-        messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+        import datetime as _dt
+
+        today = _dt.date.today()
+        system = (
+            f"{SYSTEM_PROMPT}\n\nTODAY'S DATE is {today.isoformat()} "
+            f"({today.strftime('%A')}). This week = Monday {(today - _dt.timedelta(days=today.weekday())).isoformat()} "
+            f"to today."
+        )
+        messages: list[dict] = [{"role": "system", "content": system}]
         for turn in history[-6:]:
             role = turn.get("role")
             content = turn.get("content")

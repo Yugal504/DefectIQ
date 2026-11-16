@@ -6,9 +6,85 @@ chatbot functional offline (BRD: AI responses grounded in retrieved data).
 from __future__ import annotations
 
 import re
+from datetime import date, timedelta
 from typing import Any
 
 ID_RE = re.compile(r"#?\b(\d{2,6})\b")
+
+_MONTHS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6, "jul": 7,
+    "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+
+def _month_end(year: int, month: int) -> date:
+    if month == 12:
+        return date(year, 12, 31)
+    return date(year, month + 1, 1) - timedelta(days=1)
+
+
+def _date_route(m: str) -> dict[str, Any] | None:
+    """Best-effort offline parser for time-based defect questions."""
+    if not any(k in m for k in (
+        "week", "month", "today", "yesterday", "monday", "since", "after",
+        "before", "created on", "closed on", "date by date", "day by day",
+        "2024", "2025", "2026", "2027",
+    )) and not re.search(r"\b(19|20)\d{2}\b", m):
+        return None
+
+    today = date.today()
+    kwargs: dict[str, Any] = {}
+    if "closed" in m or "resolved" in m:
+        kwargs["status"] = "Closed"
+    elif "open" in m:
+        kwargs["status"] = "Open"
+    elif "in progress" in m or "in-progress" in m:
+        kwargs["status"] = "In Progress"
+    if "smartsheet" in m or "smart sheet" in m:
+        kwargs["source"] = "smartsheet"
+    elif "github" in m or "git issue" in m:
+        kwargs["source"] = "github"
+    kwargs["date_field"] = "created" if "created" in m else "updated"
+    if "date by date" in m or "day by day" in m:
+        kwargs["granularity"] = "daily"
+
+    # Explicit "<day> <month> <year>" e.g. 1st nov 2026
+    md = re.search(r"(\d{1,2})(?:st|nd|rd|th)?\s+([a-z]{3,9})\s+((?:19|20)\d{2})", m)
+    mon_year = re.search(r"\b([a-z]{3,9})\s+((?:19|20)\d{2})\b", m)
+    if md:
+        day = int(md.group(1)); mon = _MONTHS.get(md.group(2)[:3]); yr = int(md.group(3))
+        if mon:
+            d = date(yr, mon, day)
+            kwargs["start_date"] = d.isoformat()
+            if "before" in m:
+                kwargs["end_date"] = d.isoformat(); kwargs.pop("start_date", None)
+    elif mon_year:
+        mon = _MONTHS.get(mon_year.group(1)[:3]); yr = int(mon_year.group(2))
+        if mon:
+            kwargs["start_date"] = date(yr, mon, 1).isoformat()
+            kwargs["end_date"] = _month_end(yr, mon).isoformat()
+    elif "this week" in m or ("week" in m and "last" not in m):
+        monday = today - timedelta(days=today.weekday())
+        kwargs["start_date"] = monday.isoformat(); kwargs["end_date"] = today.isoformat()
+    elif "last week" in m or "past week" in m:
+        monday = today - timedelta(days=today.weekday() + 7)
+        kwargs["start_date"] = monday.isoformat()
+        kwargs["end_date"] = (monday + timedelta(days=6)).isoformat()
+    elif "past monday" in m or "last monday" in m:
+        monday = today - timedelta(days=today.weekday())
+        if "past" in m or monday == today:
+            monday = today - timedelta(days=today.weekday())
+        kwargs["start_date"] = monday.isoformat()
+    elif "this month" in m:
+        kwargs["start_date"] = today.replace(day=1).isoformat()
+        kwargs["end_date"] = today.isoformat()
+    elif "today" in m:
+        kwargs["start_date"] = today.isoformat(); kwargs["end_date"] = today.isoformat()
+
+    # Only route if we derived a usable date constraint.
+    if kwargs.get("start_date") or kwargs.get("end_date"):
+        return kwargs
+    return None
 
 
 def _status_in(text: str) -> str | None:
@@ -24,6 +100,11 @@ def _status_in(text: str) -> str | None:
 def route(message: str) -> tuple[str, dict[str, Any]]:
     """Return (tool_name, kwargs) for a message."""
     m = (message or "").lower().strip()
+
+    # Time/date-based questions (this week, since a date, in a month, day by day)
+    date_kwargs = _date_route(m)
+    if date_kwargs is not None:
+        return "defects_by_date", date_kwargs
 
     # Reconciliation gaps
     if ("smartsheet" in m and "github" in m) or "reconcil" in m:

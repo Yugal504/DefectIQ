@@ -27,6 +27,8 @@ class DefectStore:
         self.settings = settings or get_settings()
         self._lock = threading.RLock()
         self._base: list[ConsolidatedDefect] = []
+        self._smartsheet_rows: list[dict] = []
+        self._github_rows: list[dict] = []
         self._overrides: dict[str, Any] = {"updates": {}, "deleted": [], "created": []}
         self._meta: dict = {}
         self.last_refreshed: Optional[str] = None
@@ -40,6 +42,8 @@ class DefectStore:
         with self._lock:
             data = load_workbook_data(self.settings.workbook_path)
             self._base = reconcile(data, self.settings.github_repo)
+            self._smartsheet_rows = data.smartsheet_rows
+            self._github_rows = data.github_rows
             self._meta = reconciliation_meta(data, self._base)
             self.last_refreshed = data.last_refreshed
             self.reconciled_at = datetime.now().isoformat(sep=" ", timespec="seconds")
@@ -78,6 +82,15 @@ class DefectStore:
     def all(self) -> list[ConsolidatedDefect]:
         with self._lock:
             return self._effective()
+
+    def raw_smartsheet_rows(self) -> list[dict]:
+        """All Smart Sheet Export rows (full 769), for source-level date queries."""
+        with self._lock:
+            return list(self._smartsheet_rows)
+
+    def raw_github_rows(self) -> list[dict]:
+        with self._lock:
+            return list(self._github_rows)
 
     def get(self, record_id: str) -> Optional[ConsolidatedDefect]:
         for rec in self.all():
