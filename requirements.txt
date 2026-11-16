@@ -1,0 +1,18 @@
+# Defect Management Agentic AI Solution - Python dependencies
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+pandas==2.3.3
+openpyxl==3.1.5
+python-dotenv==1.0.1
+pydantic==2.9.2
+requests==2.32.3
+python-multipart==0.0.17
+
+# Azure OpenAI (chatbot LLM layer). Optional at runtime - the agent falls
+# back to a deterministic rule-based engine when no credentials are present.
+openai==1.57.0
+
+# Optional live-extraction SDKs (Service Bot). Not required for the Excel-based
+# MVP; install only if you enable live GitHub/Smartsheet extraction.
+# smartsheet-python-sdk==3.0.3
+# PyGithub==2.5.0
