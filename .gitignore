@@ -4,5 +4,6 @@ __pycache__/
 .env
 logs/
 exports/
-data/defect_overrides.json
+# Ignore the entire local data folder (real workbook + generated overrides)
+data/
 ~$*.xls*
