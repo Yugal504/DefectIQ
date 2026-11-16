@@ -31,8 +31,56 @@ GITHUB_COLS = {
     "issue_source": 15,  # P  project / Issue Source
     "module": 19,  # T  project / Module
     "smartsheet_action_id": 28,  # AC project / SmartSheet Action ID
-    "project_status": 30,  # AE project / Status (promotion status)
+    "project_status": 31,  # AF project / Status (promotion status)
     "repository": 25,  # Z  project / Repository
+}
+
+# Issue Statuses: 0-based fallback index of the "Smart Sheet Action ID" column
+# (col O). The loader prefers detecting it by header, this is the fallback.
+ISSUE_STATUS_ACTION_ID_COL = 14
+
+# Header matchers used to resolve column indices by name (robust to the sheet
+# columns shifting between exports). mode: 'exact' (full header match) or
+# 'suffix' (project-prefixed columns like ".../ Status"). All comparisons are
+# done on lower-cased, trimmed headers.
+GITHUB_COL_MATCHERS = {
+    "issue_id": ("exact", "issueid"),
+    "title": ("exact", "title"),
+    "status": ("exact", "status"),
+    "assigned_to": ("exact", "assignedto"),
+    "created_by": ("exact", "createdby"),
+    "created": ("exact", "creationdate"),
+    "last_updated": ("exact", "lastupdatedat"),
+    "priority": ("exact", "priority"),
+    "labels": ("exact", "labels"),
+    "latest_comment": ("exact", "latestcommentpreview"),
+    "issue_source": ("suffix", "/ issue source"),
+    "module": ("suffix", "/ module"),
+    "repository": ("suffix", "/ repository"),
+    "smartsheet_action_id": ("suffix", "/ smartsheet action id"),
+    "project_status": ("suffix", "/ status"),
+}
+
+SMARTSHEET_COL_MATCHERS = {
+    "action_id": ("exact", "action id"),
+    "title": ("exact", "action title (brief)"),
+    "description": ("contains", "action description"),
+    "cycle": ("exact", "cycle"),
+    "application": ("exact", "application"),
+    "assigned_to": ("exact", "assigned to"),
+    "stakeholders": ("exact", "stakeholders"),
+    "target_date": ("exact", "target date"),
+    "ntt_category": ("exact", "ntt category"),
+    "priority": ("exact", "priority"),
+    "status": ("exact", "status"),
+    "solution": ("exact", "solution"),
+    "comments": ("exact", "comments"),
+    "created_by": ("exact", "created by"),
+    "created": ("exact", "created"),
+    "modified_by": ("exact", "modified by"),
+    "modified": ("exact", "modified"),
+    "smartsheet_action_id": ("suffix", "/ smartsheet action id"),
+    "github_title": ("suffix", "/ title"),
 }
 
 SMARTSHEET_COLS = {
@@ -54,7 +102,7 @@ SMARTSHEET_COLS = {
     "modified_by": 22,  # W  Modified By
     "modified": 23,  # X  Modified
     "smartsheet_action_id": 28,  # AC project / SmartSheet Action ID (github link)
-    "github_title": 33,  # AH project / Title (github issue title when linked)
+    "github_title": 34,  # AI project / Title (github issue title when linked)
 }
 
 
@@ -73,6 +121,27 @@ def _row_to_dict(row: tuple, colmap: dict[str, int]) -> dict[str, Optional[str]]
     for field, idx in colmap.items():
         out[field] = _clean(row[idx]) if idx < len(row) else None
     return out
+
+
+def _resolve_columns(
+    header: tuple, matchers: dict[str, tuple[str, str]], fallback: dict[str, int]
+) -> dict[str, int]:
+    """Resolve field -> column index by matching header names, with a static
+    fallback per field so the loader degrades gracefully if a header is renamed."""
+    norm = [str(h).strip().lower() if h is not None else "" for h in header]
+    resolved = dict(fallback)
+    for field, (mode, pattern) in matchers.items():
+        for i, h in enumerate(norm):
+            if not h:
+                continue
+            if (
+                (mode == "exact" and h == pattern)
+                or (mode == "suffix" and h.endswith(pattern))
+                or (mode == "contains" and pattern in h)
+            ):
+                resolved[field] = i
+                break
+    return resolved
 
 
 def _is_placeholder_github(rec: dict) -> bool:
@@ -128,33 +197,48 @@ def load_workbook_data(path: str | Path) -> WorkbookData:
     github_rows: list[dict] = []
     if "GitHub Export" in wb.sheetnames:
         ws = wb["GitHub Export"]
+        header = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+        cols = _resolve_columns(header, GITHUB_COL_MATCHERS, GITHUB_COLS)
         for row in ws.iter_rows(min_row=2, values_only=True):
             if row is None or all(c is None for c in row):
                 continue
-            rec = _row_to_dict(row, GITHUB_COLS)
+            rec = _row_to_dict(row, cols)
             if rec.get("issue_id") and not _is_placeholder_github(rec):
                 github_rows.append(rec)
 
     smartsheet_rows: list[dict] = []
     if "Smart Sheet Export" in wb.sheetnames:
         ws = wb["Smart Sheet Export"]
+        header = next(ws.iter_rows(min_row=1, max_row=1, values_only=True), ())
+        cols = _resolve_columns(header, SMARTSHEET_COL_MATCHERS, SMARTSHEET_COLS)
         for row in ws.iter_rows(min_row=2, values_only=True):
             if row is None or all(c is None for c in row):
                 continue
-            rec = _row_to_dict(row, SMARTSHEET_COLS)
+            rec = _row_to_dict(row, cols)
             if rec.get("action_id"):
                 smartsheet_rows.append(rec)
 
-    # Issue Statuses sheet: literal columns A (Git Issue ID) and N (Smart Sheet
-    # Action ID). The other columns are uncached formulas, so we recompute them.
+    # Issue Statuses sheet: literal column A (Git Issue ID) and column O
+    # (Smart Sheet Action ID). The in-between columns are uncached VLOOKUP
+    # formulas (incl. a "Smart Sheet Sub-Status" in col N), so we recompute
+    # from GitHub Export / Smart Sheet Export instead of trusting them.
     issue_status_rows: list[dict] = []
     if "Issue Statuses" in wb.sheetnames:
         ws = wb["Issue Statuses"]
+        # Resolve the Smart Sheet Action ID column by header (robust to shifts).
+        action_col = ISSUE_STATUS_ACTION_ID_COL
+        header = next(ws.iter_rows(min_row=2, max_row=2, values_only=True), ())
+        for idx, cell in enumerate(header):
+            if cell and "action id" in str(cell).strip().lower():
+                action_col = idx
+                break
         for row in ws.iter_rows(min_row=3, values_only=True):
             if row is None:
                 continue
             git_id = _clean(row[0]) if len(row) > 0 else None
-            ss_id = _clean(row[13]) if len(row) > 13 else None
+            ss_id = _clean(row[action_col]) if len(row) > action_col else None
+            if ss_id and ss_id.strip().upper() in {"#N/A", "#REF!", "#VALUE!", "N/A"}:
+                ss_id = None  # broken/absent VLOOKUP result
             if git_id:
                 issue_status_rows.append(
                     {"git_issue_id": git_id, "smart_sheet_action_id": ss_id}

@@ -26,6 +26,37 @@ _PROGRESS_WORDS = (
 _OPEN_WORDS = ("new", "open", "to be", "backlog", "todo", "to do")
 
 
+_DATE_FORMATS = (
+    "%Y-%m-%dT%H:%M:%S",
+    "%Y-%m-%d %H:%M:%S",
+    "%Y-%m-%d",
+    "%m/%d/%Y %I:%M:%S %p",
+    "%m/%d/%Y %H:%M:%S",
+    "%m/%d/%Y",
+)
+
+
+def date_only(value: Optional[str]) -> Optional[str]:
+    """Return just the calendar date (YYYY-MM-DD), dropping any time component."""
+    if value is None:
+        return None
+    s = str(value).strip()
+    if not s:
+        return None
+    import datetime as _dt
+
+    core = s.replace("Z", "").split(".")[0]
+    for fmt in _DATE_FORMATS:
+        try:
+            return _dt.datetime.strptime(core, fmt).date().isoformat()
+        except ValueError:
+            continue
+    try:
+        return _dt.datetime.fromisoformat(core).date().isoformat()
+    except ValueError:
+        return s  # leave untouched if unparseable
+
+
 def norm_id(value: Optional[str]) -> Optional[str]:
     """Normalize an identifier: strip whitespace and a trailing '.0'."""
     if value is None:
@@ -182,12 +213,12 @@ def reconcile(data: WorkbookData, github_repo: str) -> list[ConsolidatedDefect]:
                 priority=gh.get("priority") or (ss.get("priority") if ss else None),
                 github_priority=gh.get("priority"),
                 customer_priority=(ss.get("priority") if ss else None),
-                created_date=gh.get("created") or (ss.get("created") if ss else None),
-                last_updated=gh.get("last_updated") or (ss.get("modified") if ss else None),
-                github_created=gh.get("created"),
-                github_last_updated=gh.get("last_updated"),
-                customer_created=(ss.get("created") if ss else None),
-                customer_modified=(ss.get("modified") if ss else None),
+                created_date=date_only(gh.get("created") or (ss.get("created") if ss else None)),
+                last_updated=date_only(gh.get("last_updated") or (ss.get("modified") if ss else None)),
+                github_created=date_only(gh.get("created")),
+                github_last_updated=date_only(gh.get("last_updated")),
+                customer_created=date_only(ss.get("created") if ss else None),
+                customer_modified=date_only(ss.get("modified") if ss else None),
                 development_progress=proj_status,
                 latest_comment=gh.get("latest_comment") or (ss.get("comments") if ss else None),
                 module=gh.get("module") or (ss.get("application") if ss else None),

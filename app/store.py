@@ -109,7 +109,7 @@ class DefectStore:
                 source = "Smartsheet"
             elif not payload.github_issue_id and not payload.customer_defect_id:
                 source = "Manual"
-            now = datetime.now().isoformat(sep=" ", timespec="seconds")
+            now = datetime.now().date().isoformat()
             rec = ConsolidatedDefect(
                 record_id=rid,
                 customer_defect_id=payload.customer_defect_id,
@@ -141,7 +141,7 @@ class DefectStore:
         if not changes:
             return self.get(record_id)
         with self._lock:
-            changes["last_updated"] = datetime.now().isoformat(sep=" ", timespec="seconds")
+            changes["last_updated"] = datetime.now().date().isoformat()
             # Manual (created) records are edited in place.
             for c in self._overrides["created"]:
                 if c["record_id"] == record_id:
