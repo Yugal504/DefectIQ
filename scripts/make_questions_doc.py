@@ -216,7 +216,7 @@ test_rows = [
     ("Distribution", "Show defects by issue source", "PROD 91, UAT 46, SIT 43"),
     ("Owner workload", "Which developers have the most open defects?", "Ranked owners (top ~6, 6, 4, ...)"),
     ("Unassigned", "How many unassigned defects?", "353 unassigned"),
-    ("Reconciliation", "Which defects are in Smartsheet but missing in GitHub?", "Count of Smartsheet-only defects"),
+    ("Reconciliation", "Which defects are in Smartsheet but missing in GitHub?", "778 (matches the KPI)"),
     ("Reconciliation", "Show me any duplicates", "0 duplicates"),
     ("Reconciliation", "What needs review?", "2 requiring review"),
     ("Time-based", "How many defects were closed this week?", "Date-filtered count (by updated)"),

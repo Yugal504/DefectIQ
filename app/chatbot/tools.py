@@ -11,7 +11,7 @@ from datetime import datetime
 from typing import Optional
 
 from ..models import ConsolidatedDefect
-from ..reconciliation import _classify
+from ..reconciliation import _classify, norm_id
 from ..store import DefectStore
 
 # Accepted date/datetime formats across GitHub (ISO Z) and Smartsheet.
@@ -229,8 +229,34 @@ class DefectTools:
         kind = (kind or "").strip().lower()
         defects = self.store.all()
         if kind in {"smartsheet_only", "smartsheet", "missing_in_github"}:
-            rows = [d for d in defects if d.source_availability == "Smartsheet"]
-            label = "in Smartsheet but missing in GitHub"
+            # Smartsheet actions that are never linked to a GitHub issue. Computed
+            # from the raw Smartsheet rows (consistent with the dashboard's
+            # "missing_in_github" KPI); consolidated defects are GitHub-driven and
+            # never carry source_availability == "Smartsheet".
+            linked = {norm_id(d.customer_defect_id) for d in defects if d.customer_defect_id}
+            ss_missing = [
+                r
+                for r in self.store.raw_smartsheet_rows()
+                if norm_id(r.get("action_id")) and norm_id(r.get("action_id")) not in linked
+            ]
+            proj = [
+                {
+                    "customer_defect_id": r.get("action_id"),
+                    "defect_title": r.get("title"),
+                    "consolidated_status": r.get("status"),
+                    "assigned_developer": r.get("assigned_to"),
+                    "priority": r.get("priority"),
+                    "last_updated": r.get("modified"),
+                    "source_availability": "Smartsheet",
+                }
+                for r in ss_missing[:50]
+            ]
+            return {
+                "summary": f"{len(ss_missing)} defect(s) in Smartsheet but missing in GitHub.",
+                "count": len(ss_missing),
+                "rows": proj,
+                "extra": {},
+            }
         elif kind in {"github_only", "github", "missing_in_smartsheet"}:
             rows = [d for d in defects if d.source_availability == "GitHub"]
             label = "in GitHub but missing in Smartsheet"
