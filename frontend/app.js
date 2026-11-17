@@ -252,14 +252,15 @@ async function loadDefects() {
   const canU = State.perms.includes("update"), canD = State.perms.includes("delete");
   $("#defect-tbody").innerHTML = data.items.map((d) => `
     <tr data-id="${d.record_id}">
-      <td>${esc(d.customer_defect_id)}</td>
       <td>${d.github_issue_id ? `<a href="#" class="gh-link">#${esc(d.github_issue_id)}</a>` : esc(d.github_issue_id) || "—"}</td>
       <td title="${esc(d.defect_title)}">${esc(d.defect_title)}</td>
-      <td>${esc(d.customer_status)}</td><td>${esc(d.github_status)}</td>
+      <td>${esc(d.github_status)}</td>
       <td>${statusPill(d.consolidated_status)}</td>
       <td>${esc(d.assigned_developer)}</td><td>${esc(d.priority)}</td>
       <td>${esc(d.issue_source)}</td>
       <td><span class="tag">${d.source_availability === "Both" ? "Linked" : "Not linked"}</span></td>
+      <td>${esc(d.customer_defect_id)}</td>
+      <td>${esc(d.customer_status)}</td>
       <td class="row-actions">
         <button class="btn" data-act="view">View</button>
         ${canU ? `<button class="btn" data-act="edit">Edit</button>` : ""}
@@ -295,8 +296,8 @@ $("#modal").addEventListener("click", (e) => { if (e.target.id === "modal") clos
 async function openDetail(id) {
   const d = await apiJSON("/api/defects/" + encodeURIComponent(id));
   $("#modal-title").textContent = d.defect_title || d.record_id;
-  const rows = [["Customer Defect ID", d.customer_defect_id], ["GitHub Issue ID", d.github_issue_id], ["Consolidated Status", d.consolidated_status],
-    ["Customer Status", d.customer_status], ["GitHub Status", d.github_status], ["Assigned Owner", d.assigned_developer], ["Priority", d.priority],
+  const rows = [["Action ID", d.customer_defect_id], ["GitHub Issue ID", d.github_issue_id], ["Consolidated Status", d.consolidated_status],
+    ["Smart Sheet Status", d.customer_status], ["GitHub Status", d.github_status], ["Assigned Owner", d.assigned_developer], ["Priority", d.priority],
     ["Issue Source", d.issue_source], ["Module", d.module], ["NTT Category", d.ntt_category], ["Link", d.source_availability === "Both" ? "Linked to GitHub" : "Not linked"],
     ["Data Validation", d.data_validation_status], ["Created", d.created_date], ["Last Updated", d.last_updated],
     ["Development Progress", d.development_progress], ["Latest Comment", d.latest_comment], ["Description", d.description]];
@@ -406,14 +407,16 @@ function miniChartLayout(c, horiz) {
       ...base,
       margin: { t: 6, r: 10, b: 30, l: 120 },
       xaxis: { fixedrange: true, rangemode: "tozero", range: [0, yTop], showgrid: true, gridcolor: "#eef2f7" },
-      yaxis: { fixedrange: true, automargin: true },
+      // type:category keeps labels (incl. ISO dates) as discrete bars, never a time axis
+      yaxis: { fixedrange: true, automargin: true, type: "category" },
     };
   }
   const many = c.labels.length > 5;
   return {
     ...base,
     margin: { t: 6, r: 8, b: many ? 72 : 48, l: 44 },
-    xaxis: { fixedrange: true, automargin: true, tickangle: many ? -35 : -20 },
+    // type:category prevents Plotly from treating a lone ISO date as a time axis
+    xaxis: { fixedrange: true, automargin: true, tickangle: many ? -35 : -20, type: "category" },
     yaxis: { fixedrange: true, rangemode: "tozero", range: [0, yTop], showgrid: true, gridcolor: "#eef2f7", zeroline: false },
   };
 }
