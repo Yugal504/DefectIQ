@@ -2,8 +2,15 @@
 __pycache__/
 *.pyc
 .env
+
+# Runtime output
 logs/
 exports/
-# Ignore the entire local data folder (real workbook + generated overrides)
+downloads/
+
+# Local data (real workbook + generated overrides + backups)
 data/
 ~$*.xls*
+
+# Editor / OS
+.DS_Store

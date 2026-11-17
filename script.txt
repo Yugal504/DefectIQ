@@ -1,0 +1,289 @@
+// Paste this entire script into Edge DevTools (F12 > Console) on github.com.
+// Edit repo below. Uses GitHub REST and GraphQL APIs. One row per repository issue.
+// All accessible associated Projects (including archived items) are included.
+// Project columns are prefixed with the project URL to avoid name collisions.
+// Requires a PAT: classic read:project plus repo for private repositories,
+// or an appropriately authorized fine-grained token with Issues/Projects read access.
+// Timestamps are GitHub ISO 8601 UTC. Project-only draft items are not repo issues.
+// A private repository requires a PAT with Issues: read permission and repo access.
+// Priority is the issue field shown under Fields, not a label or project field.
+// Latest means newest created_at; edits to older comments do not change this.
+// Required API failures stop the export. A 404 on optional issue-field-values
+// is marked UNAVAILABLE; Project fields are still retrieved independently.
+(async () => {
+    const repo = "Yugal504/helloworld"; // CHANGE to your owner/repository
+    let token = prompt("GitHub PAT with repository Issues and Projects read access (Cancel to stop):");
+    if (token === null) return;
+    if (!token.trim()) { console.error("A token is required for the Projects GraphQL API."); return; }
+    const headers = {
+        Accept: "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2026-03-10"
+    };
+    if (token.trim()) headers.Authorization = `Bearer ${token.trim()}`;
+    const base = `https://api.github.com/repos/${repo}`;
+
+    // Retry only read operations: REST GETs and GraphQL queries (no mutations).
+    async function requestJson(url, options = {}) {
+        if (new URL(url).origin !== "https://api.github.com") {
+            throw new Error("Refusing to send credentials outside api.github.com.");
+        }
+        const attempts = 4;
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 60000);
+            let retryDelay = 2000 * 2 ** (attempt - 1);
+            try {
+                const response = await fetch(url, {
+                    ...options, redirect: "error", signal: controller.signal
+                });
+                if (!response.ok) {
+                    const error = new Error(`GitHub API HTTP ${response.status} at ${url}`);
+                    error.status = response.status;
+                    error.retryable = [408, 429, 500, 502, 503, 504].includes(response.status);
+                    const retryAfter = Number(response.headers.get("retry-after"));
+                    if (retryAfter > 0) {
+                        // Do not retry before a long server-requested cooldown.
+                        if (retryAfter > 30) {
+                            error.retryable = false;
+                            error.message += `; wait at least ${retryAfter} seconds before rerunning.`;
+                        } else retryDelay = Math.max(retryDelay, retryAfter * 1000);
+                    }
+                    throw error;
+                }
+                const data = await response.json();
+                if (data.errors?.length && data.errors.every(e =>
+                    /timed? out|timeout|temporarily unavailable/i.test(e.message || ""))) {
+                    const error = new Error("GitHub GraphQL query timed out.");
+                    error.retryable = true;
+                    throw error;
+                }
+                return { response, data };
+            } catch (error) {
+                const retryable = error.retryable || error.name === "TypeError" || error.name === "AbortError";
+                if (!retryable) throw error;
+                if (attempt === attempts) {
+                    throw new Error(`Request failed after ${attempts} attempts at ${url}. ` +
+                        "This may be a GitHub gateway timeout or a network/proxy restriction. " +
+                        "If DevTools shows CORS, the browser may be hiding the underlying HTTP error. " +
+                        `Last error: ${error.message}`);
+                }
+                console.warn(`Request interrupted (${attempt}/${attempts}); retrying in ${retryDelay / 1000}s: ${new URL(url).pathname}`);
+            } finally {
+                clearTimeout(timer);
+            }
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+        }
+    }
+
+    async function getPage(url) {
+        const { response, data } = await requestJson(url, { headers });
+        if (!Array.isArray(data)) throw new Error(`Expected an array from ${url}`);
+        const next = (response.headers.get("link") || "")
+            .split(",").find(part => /rel="next"/.test(part));
+        return { data, next: next ? next.match(/<([^>]+)>/)[1] : null };
+    }
+
+    async function getAll(url) {
+        const items = [];
+        while (url) {
+            const page = await getPage(url);
+            items.push(...page.data);
+            url = page.next;
+        }
+        return items;
+    }
+
+
+    const projectColumns = new Set();
+    const projectDefinitions = new Map();
+    async function graphql(query, variables) {
+        const { data: result } = await requestJson("https://api.github.com/graphql", {
+            method: "POST", redirect: "error",
+            headers: { ...headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ query, variables })
+        });
+        if (result.errors?.length) throw new Error(result.errors.map(e => e.message).join("; "));
+        return result.data;
+    }
+    const fieldInfo = "... on ProjectV2FieldCommon { id name dataType }";
+    const valueFragments = `
+        __typename
+        ... on ProjectV2ItemIssueFieldValue { field { ${fieldInfo} } }
+        ... on ProjectV2ItemFieldValueCommon { field { ${fieldInfo} } }
+        ... on ProjectV2ItemFieldTextValue { text }
+        ... on ProjectV2ItemFieldNumberValue { number }
+        ... on ProjectV2ItemFieldDateValue { date }
+        ... on ProjectV2ItemFieldSingleSelectValue { name }
+        ... on ProjectV2ItemFieldMultiSelectValue { options { name } }
+        ... on ProjectV2ItemFieldIterationValue { title startDate duration }
+        ... on ProjectV2ItemFieldRepositoryValue { field { ${fieldInfo} } repository { nameWithOwner } }
+        ... on ProjectV2ItemFieldMilestoneValue { field { ${fieldInfo} } milestone { title } }
+        ... on ProjectV2ItemFieldLabelValue { field { ${fieldInfo} } labels(first:100) { nodes { name } pageInfo { hasNextPage } } }
+        ... on ProjectV2ItemFieldUserValue { field { ${fieldInfo} } users(first:100) { nodes { login } pageInfo { hasNextPage } } }
+        ... on ProjectV2ItemFieldPullRequestValue { field { ${fieldInfo} } pullRequests(first:100) { nodes { url } pageInfo { hasNextPage } } }
+        ... on ProjectV2ItemFieldReviewerValue { field { ${fieldInfo} } reviewers(first:100) { nodes { ... on User { login } ... on Team { name } } pageInfo { hasNextPage } } }
+    `;
+    async function connection(id, type, selection, key) {
+        const nodes = [];
+        let cursor = null;
+        do {
+            const data = await graphql(`query($id:ID!,$cursor:String) {
+                node(id:$id) { ... on ${type} { ${selection} } }
+            }`, { id, cursor });
+            const result = data.node?.[key];
+            if (!result) throw new Error(`Cannot read ${type} ${key}; check project visibility and token permissions.`);
+            nodes.push(...result.nodes.filter(Boolean));
+            cursor = result.pageInfo.hasNextPage ? result.pageInfo.endCursor : null;
+            if (result.pageInfo.hasNextPage && !cursor) throw new Error("Missing pagination cursor.");
+        } while (cursor);
+        return nodes;
+    }
+    function fieldText(value) {
+        for (const key of ["labels", "users", "pullRequests", "reviewers"]) {
+            if (value[key]) {
+                if (value[key].pageInfo.hasNextPage) throw new Error(`More than 100 ${key} on one project field; export stopped to avoid truncation.`);
+                return value[key].nodes.filter(Boolean).map(n => n.login ?? n.name ?? n.url ?? "").join("; ");
+            }
+        }
+        if (value.options) return value.options.map(o => o.name).join("; ");
+        if (value.repository) return value.repository.nameWithOwner;
+        if (value.milestone) return value.milestone.title;
+        return value.text ?? value.number ?? value.date ?? value.name ?? value.title ?? "";
+    }
+    async function addProjects(issue, row, issueFields, issueFieldsAvailable) {
+        const items = await connection(issue.node_id, "Issue", `
+            projectItems(first:20,after:$cursor,includeArchived:true) {
+                nodes { id updatedAt isArchived project { id title url } }
+                pageInfo { hasNextPage endCursor }
+            }`, "projectItems");
+        row.Projects = items.map(i => i.project?.title || "").join("; ");
+        for (const item of items) {
+            if (!item.project) throw new Error(`Project inaccessible for issue #${issue.number}.`);
+            const project = item.project;
+            const prefix = `Project ${project.title} (${project.url}) / `;
+            if (!projectDefinitions.has(project.id)) {
+                projectDefinitions.set(project.id, await connection(project.id, "ProjectV2", `
+                    fields(first:25,after:$cursor) {
+                        nodes { ${fieldInfo} } pageInfo { hasNextPage endCursor }
+                    }`, "fields"));
+            }
+            // Include defined columns even if no exported issue has a value set.
+            for (const field of projectDefinitions.get(project.id)) {
+                if (field.name) projectColumns.add(prefix + field.name);
+            }
+            for (const [key, val] of Object.entries({
+                ProjectItemUpdatedAt: item.updatedAt, ProjectItemArchived: item.isArchived
+            })) {
+                projectColumns.add(prefix + key);
+                row[prefix + key] = val;
+            }
+            const values = await connection(item.id, "ProjectV2Item", `
+                fieldValues(first:20,after:$cursor) {
+                    nodes { ${valueFragments} } pageInfo { hasNextPage endCursor }
+                }`, "fieldValues");
+            for (const value of values) {
+                if (!value.field?.name) throw new Error(`Unsupported project field value type: ${value.__typename}`);
+                const key = prefix + value.field.name;
+                projectColumns.add(key);
+                if (value.__typename === "ProjectV2ItemIssueFieldValue") {
+                    if (!issueFieldsAvailable) {
+                        row[key] = "UNAVAILABLE";
+                        continue;
+                    }
+                    const f = issueFields.find(f => f.issue_field_name === value.field.name);
+                    row[key] = f?.single_select_option?.name ??
+                        (f?.multi_select_options ? f.multi_select_options.map(o => o.name).join("; ") : f?.value ?? "");
+                } else {
+                    row[key] = fieldText(value);
+                }
+            }
+        }
+    }
+
+    function preview(body) {
+        const clean = String(body ?? "").replace(/,/g, "").replace(/\s+/g, " ").trim();
+        return Array.from(clean).slice(0, 150).join("");
+    }
+
+    function csvCell(value) {
+        let text = String(value ?? "");
+        // Prevent spreadsheet programs interpreting issue text as a formula.
+        if (/^[\s]*[=+@-]/.test(text)) text = "'" + text;
+        return `"${text.replace(/"/g, '""')}"`;
+    }
+
+    try {
+        console.log("Fetching open and closed issues...");
+        const issues = (await getAll(`${base}/issues?state=all&sort=created&direction=asc&per_page=100`))
+            .filter(item => !item.pull_request);
+        const rows = [];
+        for (const [index, item] of issues.entries()) {
+            console.log(`Issue #${item.number} (${index + 1}/${issues.length}): fetching priority and latest comment...`);
+            let fields = [];
+            let issueFieldsAvailable = true;
+            try {
+                fields = await getAll(`${base}/issues/${item.number}/issue-field-values?per_page=100`);
+            } catch (error) {
+                if (error.status !== 404) throw error;
+                issueFieldsAvailable = false;
+                console.warn(`Issue #${item.number}: issue fields endpoint returned 404. Issue Priority will be UNAVAILABLE; continuing with Project fields.`);
+            }
+            const priority = fields.find(field => String(field.issue_field_name).toLowerCase() === "priority");
+            const priorityName = priority?.single_select_option?.name
+                ?? (typeof priority?.value === "string" ? priority.value : "");
+            if (priority?.value != null && !priorityName) {
+                throw new Error(`Cannot resolve Priority option name for issue #${item.number}.`);
+            }
+
+            // Fetch every comment page to reliably select the newest created comment.
+            // The comment count is used internally only; it is not exported.
+            let latest = null;
+            if (item.comments > 0) {
+                let url = `${base}/issues/${item.number}/comments?per_page=100`;
+                while (url) {
+                    const page = await getPage(url);
+                    for (const comment of page.data) {
+                        if (!latest || comment.created_at > latest.created_at ||
+                            (comment.created_at === latest.created_at && comment.id > latest.id)) {
+                            latest = comment;
+                        }
+                    }
+                    url = page.next;
+                }
+            }
+            const row = {
+                IssueID: item.number,
+                Title: item.title,
+                Status: (item.state || "").toUpperCase(),
+                AssignedTo: (item.assignees || []).map(a => a.login).join("; "),
+                CreatedBy: item.user?.login || "",
+                CreationDate: item.created_at || "",
+                LastUpdatedAt: item.updated_at || "",
+                Priority: issueFieldsAvailable ? priorityName : "UNAVAILABLE",
+                Labels: (item.labels || []).map(label => typeof label === "string" ? label : label.name).join("; "),
+                LatestCommentPreview: preview(latest?.body)
+            };
+            console.log(`Issue #${item.number}: fetching associated Project fields...`);
+            await addProjects(item, row, fields, issueFieldsAvailable);
+            rows.push(row);
+        }
+        rows.sort((a, b) => b.IssueID - a.IssueID);
+        const columns = ["IssueID", "Title", "Status", "AssignedTo", "CreatedBy", "CreationDate", "LastUpdatedAt", "Priority", "Labels", "LatestCommentPreview", "Projects", ...Array.from(projectColumns).sort()];
+        const csv = [columns.map(csvCell).join(","), ...rows.map(row => columns.map(key => csvCell(row[key])).join(","))].join("\r\n");
+        const blob = new Blob(["\uFEFF", csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "github_issues_export.csv";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10000);
+        console.log(`Exported ${rows.length} issues. Unset Priority and missing comments are blank.`);
+    } catch (error) {
+        console.error("Export stopped; no CSV downloaded.", error.message);
+    } finally {
+        delete headers.Authorization;
+        token = "";
+    }
+})();
