@@ -30,7 +30,7 @@ $("#login-form").addEventListener("submit", async (e) => {
     localStorage.setItem("dm_token", data.token); startApp();
   } catch (err) { $("#login-error").textContent = err.message; }
 });
-function logout() { State.token = null; localStorage.removeItem("dm_token"); $("#app").classList.add("hidden"); $("#login").classList.remove("hidden"); }
+function logout() { State.token = null; localStorage.removeItem("dm_token"); $("#app").classList.add("hidden"); $("#app").style.display = "none"; $("#login").classList.remove("hidden"); $("#login").style.display = ""; }
 $("#btn-logout").addEventListener("click", logout);
 function applyPermissions() {
   const can = (p) => State.perms.includes(p);
@@ -39,7 +39,8 @@ function applyPermissions() {
   $("#nav-audit").classList.toggle("perm-hide", !can("admin"));
 }
 async function startApp() {
-  $("#login").classList.add("hidden"); $("#app").classList.remove("hidden");
+  $("#login").classList.add("hidden"); $("#login").style.display = "none";
+  $("#app").classList.remove("hidden"); $("#app").style.display = "";
   if (!State.user) { const me = await apiJSON("/api/me"); State.user = me.user; State.perms = me.permissions; }
   $("#user-name").textContent = State.user.name;
   $("#user-role").textContent = State.user.role;
@@ -181,6 +182,7 @@ function moduleChartPairs(rows) {
 const DASH_CHART_IDS = ["chart-status", "chart-issuesource", "chart-source", "chart-priority", "chart-validation", "chart-dev", "chart-module"];
 let chartData = null, chartsNeedRender = false;
 function resizeDashboardCharts() {
+  if (typeof Plotly === "undefined") return;
   requestAnimationFrame(() => {
     DASH_CHART_IDS.forEach((id) => {
       const el = document.getElementById(id);
@@ -201,8 +203,19 @@ async function loadDashboard() {
   chartsNeedRender = false;
   renderCharts();
 }
+let _plotlyWaitTries = 0;
 function renderCharts() {
   const c = chartData; if (!c) return;
+  // Plotly is loaded with `defer` (so it never blocks the login page). If the
+  // dashboard renders before that 4.5MB script finishes, wait and retry instead
+  // of skipping - otherwise charts stay blank until a manual refresh.
+  if (typeof Plotly === "undefined") {
+    if (_plotlyWaitTries++ < 150) setTimeout(renderCharts, 50);
+    else console.warn("Plotly did not load; charts skipped.");
+    return;
+  }
+  _plotlyWaitTries = 0;
+  const showEmpty = $("#toggle-empty").checked;
   const L = { margin: { t: 10, r: 10, b: 40, l: 40 }, font: { size: 11 }, showlegend: false, ...NO_ZOOM_AXES };
   const colors = (n) => Array.from({ length: n }, (_, i) => PAL[i % PAL.length]);
   const pieLegend = { showlegend: true, legend: { orientation: "v", font: { size: 10 } } };

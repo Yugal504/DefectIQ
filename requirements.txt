@@ -1,18 +1,27 @@
-# Defect Management Agentic AI Solution - Python dependencies
+# DefectIQ AI Solution - unified Python dependencies (extraction + dashboard)
+
+# --- Web dashboard / API (app/) ---
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
-pandas==2.3.3
-openpyxl==3.1.5
-python-dotenv==1.0.1
 pydantic==2.9.2
-requests==2.32.3
 python-multipart==0.0.17
+requests==2.32.3
 
-# Azure OpenAI (chatbot LLM layer). Optional at runtime - the agent falls
-# back to a deterministic rule-based engine when no credentials are present.
+# --- Shared data handling ---
+pandas>=2.2.0
+openpyxl>=3.1.2
+python-dotenv>=1.0.1
+
+# --- Browser automation over the DevTools Protocol (extraction/) ---
+# No WebDriver executable is needed (corporate policy blocks chromedriver).
+websocket-client>=1.8.0
+
+# --- Azure OpenAI (chatbot LLM layer, optional at runtime) ---
 openai==1.57.0
 
-# Optional live-extraction SDKs (Service Bot). Not required for the Excel-based
-# MVP; install only if you enable live GitHub/Smartsheet extraction.
+# --- Optional: Excel COM automation to preserve pivots on write (Windows only) ---
+# pywin32>=306
+
+# --- Optional live-extraction SDKs (dashboard service bot, off by default) ---
 # smartsheet-python-sdk==3.0.3
 # PyGithub==2.5.0

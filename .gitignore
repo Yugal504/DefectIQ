@@ -2,8 +2,19 @@
 __pycache__/
 *.pyc
 .env
+
+# Runtime output
 logs/
 exports/
-# Ignore the entire local data folder (real workbook + generated overrides)
+downloads/
+
+# Local data (real workbook + generated overrides + backups)
 data/
 ~$*.xls*
+
+# Dedicated Chrome profile for the dashboard window (lets the service
+# auto-stop when the window is closed)
+.dashboard_browser_profile/
+
+# Editor / OS
+.DS_Store
