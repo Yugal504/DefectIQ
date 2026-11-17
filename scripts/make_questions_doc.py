@@ -158,9 +158,12 @@ business = [
      "During login the bot submits your credentials, then stops and waits (up to MFA_WAIT_TIMEOUT, default "
      "5 min) so you can finish the second factor - authenticator code, SMS, push, SSO or CAPTCHA - by hand. "
      "Once the page reaches the logged-in screen it resumes automatically."),
-    ("Can users edit defects, and do edits survive a refresh?",
-     "Yes - create/update/delete by role. Edits are stored as an override layer on top of the extracted "
-     "data, so a workbook refresh never loses them. Write-back to the source Excel sheets is optional."),
+    ("Can users edit defects, do edits survive a refresh, and where are they stored?",
+     "Yes - create/update/delete by role. Edits are stored as an override layer in data/defect_overrides.json "
+     "(updates / deleted / created). On every refresh the base data is re-read from the workbook and the "
+     "overrides are re-applied on top, so manual edits are never lost. Optionally (EXCEL_WRITEBACK_ENABLED, "
+     "on by default, with Excel + pywin32) updates/deletes are also written back to the GitHub Export / Smart "
+     "Sheet Export sheets via Excel COM. Every change is also recorded in logs/audit.log."),
     ("How is access controlled and audited?",
      "Five roles with per-endpoint permission checks, HMAC-signed sessions and salted+hashed passwords. "
      "Every create/update/delete is recorded in an append-only audit log Administrators can view."),
@@ -179,9 +182,14 @@ business = [
     ("What is the path to production?",
      "Swap demo users for enterprise SSO/OAuth, enable approved source write-back, and schedule the "
      "extraction. The architecture and role model stay the same."),
-    ("Is any defect data sent to the LLM?",
-     "Only the specific tool results needed to answer a question (counts and small row samples), never the "
-     "whole dataset, and the model is instructed to use those exact values verbatim."),
+    ("Are we giving data to the AI, and is that risky?",
+     "Only in LLM mode (Azure OpenAI configured) - otherwise the bot runs fully offline and sends nothing "
+     "externally. When enabled, only the system prompt, the question, recent turns and tool results are sent "
+     "(up to ~40 defect rows per call: id, title, status, developer, priority, dates, GitHub URL; a detail "
+     "lookup returns one full record) - never the whole workbook, and no passwords. It goes to Azure OpenAI "
+     "in your own tenant/region, where Microsoft does not use prompts/outputs to train models, so risk is "
+     "materially lower than public ChatGPT. Mitigations: offline mode, minimal grounded slices, keys in .env; "
+     "developer names or the full-record payload can be redacted if required."),
 ]
 for i, (q, a) in enumerate(business, 1):
     qa(i, q, a)
