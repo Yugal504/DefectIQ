@@ -116,7 +116,7 @@ const CHART_THEMES = {
   },
   link: {
     order: ["Linked to GitHub", "Not Linked"],
-    colors: { "linked to github": "#17a673", "not linked": "#d9534f" },
+    colors: { "linked to github": "#17a673", "not linked": "#0a66c2" },
   },
   issueSource: {
     order: ["PROD", "UAT", "SIT", "DEV", "QA", "Exception Triage", "Shared Mailbox", "(none)"],
