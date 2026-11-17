@@ -5,6 +5,10 @@ Run the whole solution with one command:
 
     python main.py
 
+Or run ONLY the dashboard (skip GitHub / Smartsheet / data load):
+
+    python main.py --dashboard-only      # aliases: --dashboard, -d
+
 Four services run in sequence:
 
   1. GitHub service    : open browser -> log in -> open issues -> export issues
@@ -31,6 +35,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import webbrowser
 from pathlib import Path
@@ -40,6 +45,59 @@ from dotenv import load_dotenv
 
 _ROOT = Path(__file__).resolve().parent
 _ENV_PATH = _ROOT / ".env"
+
+# ---------------------------------------------------------------------------
+# Per-run logging: every run writes logs/service_log_<timestamp>.txt and also
+# keeps printing to the console (tee). Set up populated by _start_run_logging().
+# ---------------------------------------------------------------------------
+_LOG_FILE_HANDLE = None  # type: ignore[var-annotated]
+_LOG_FILE_PATH = None  # type: ignore[var-annotated]
+
+
+class _Tee:
+    """A write-through stream that mirrors output to several streams."""
+
+    def __init__(self, *streams):
+        self._streams = [s for s in streams if s is not None]
+
+    def write(self, data):
+        for s in self._streams:
+            try:
+                s.write(data)
+                s.flush()
+            except Exception:  # noqa: BLE001
+                pass
+        return len(data)
+
+    def flush(self):
+        for s in self._streams:
+            try:
+                s.flush()
+            except Exception:  # noqa: BLE001
+                pass
+
+    def isatty(self):  # some libs check this
+        return False
+
+
+def _start_run_logging() -> Path:
+    """Create logs/service_log_<timestamp>.txt and tee stdout/stderr to it."""
+    global _LOG_FILE_HANDLE, _LOG_FILE_PATH
+    logs_dir = _ROOT / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    path = logs_dir / f"service_log_{stamp}.txt"
+    handle = open(path, "a", encoding="utf-8", buffering=1)
+    _LOG_FILE_HANDLE = handle
+    _LOG_FILE_PATH = path
+    sys.stdout = _Tee(sys.stdout, handle)
+    sys.stderr = _Tee(sys.stderr, handle)
+    print("=" * 70)
+    print(f"DefectIQ service run - {time.strftime('%Y-%m-%d %H:%M:%S')}")
+    print(f"Log file: {path}")
+    print("=" * 70)
+    return path
+
 
 # Make the extraction package importable when run as "python main.py".
 sys.path.insert(0, str(_ROOT))
@@ -279,6 +337,23 @@ def _wait_for_port(host: str, port: int, timeout: int = 60) -> bool:
     return False
 
 
+def _pump_output(pipe) -> None:
+    """Forward a subprocess' output to sys.stdout (console + run log file)."""
+    try:
+        for line in iter(pipe.readline, ""):
+            if not line:
+                break
+            sys.stdout.write(line)
+            sys.stdout.flush()
+    except Exception:  # noqa: BLE001
+        pass
+    finally:
+        try:
+            pipe.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def _terminate_tree(proc: subprocess.Popen) -> None:
     """Kill a process and its children (Windows)."""
     if proc is None:
@@ -352,7 +427,16 @@ def dashboard_service(cfg: dict):
         print(f"An app is already listening on {host}:{port}; reusing it.")
     else:
         print(f"Starting dashboard: \"{python_exe}\" run.py  (cwd={_ROOT})")
-        proc = subprocess.Popen([python_exe, "run.py"], cwd=str(_ROOT))
+        proc = subprocess.Popen(
+            [python_exe, "run.py"],
+            cwd=str(_ROOT),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+        )
+        # Mirror the server's output to console + the run log file.
+        threading.Thread(target=_pump_output, args=(proc.stdout,), daemon=True).start()
         print(f"Waiting for the app at {url} ...")
         if _wait_for_port(host, port, timeout=60):
             print("App is up.")
@@ -360,13 +444,32 @@ def dashboard_service(cfg: dict):
             print(f"App did not respond on {host}:{port} within 60s; opening browser anyway.")
 
     browser = _dashboard_browser()
+    browser_proc = None
     if browser:
+        # Launch Chrome with a DEDICATED profile so it is always its own
+        # process (Chrome won't hand the URL off to an already-running
+        # instance and exit). That standalone process lets us detect when the
+        # user closes the window and shut the dashboard down with it.
+        browser_profile = _ROOT / ".dashboard_browser_profile"
+        try:
+            browser_profile.mkdir(parents=True, exist_ok=True)
+        except Exception:  # noqa: BLE001
+            pass
         print(f"Opening dashboard in Chrome at {url}\n  ({browser})")
         try:
-            subprocess.Popen([browser, "--new-window", url])
-            return proc
+            browser_proc = subprocess.Popen(
+                [
+                    browser,
+                    f"--user-data-dir={browser_profile}",
+                    "--no-first-run",
+                    "--no-default-browser-check",
+                    "--new-window",
+                    url,
+                ]
+            )
         except Exception:  # noqa: BLE001
             print("Could not launch Chrome; falling back to the OS default browser.")
+            browser_proc = None
     else:
         print(
             "Chrome not found. Opening with the OS default browser.\n"
@@ -376,12 +479,58 @@ def dashboard_service(cfg: dict):
             "  DASHBOARD_BROWSER_PATH / CHROME_PATH in .env to a Chrome .exe."
         )
 
-    print(f"Opening browser at {url}")
+    if browser_proc is None:
+        print(f"Opening browser at {url}")
+        print(
+            "  (Could not get a browser-window handle, so the service will NOT\n"
+            "   auto-stop when you close the window - press Ctrl+C to stop it.)"
+        )
+        try:
+            webbrowser.open(url)
+        except Exception:  # noqa: BLE001
+            pass
+
+    return proc, browser_proc
+
+
+def _run_dashboard_until_closed(server_proc, browser_proc, url: str) -> None:
+    """Keep running until the user closes the browser window (or presses
+    Ctrl+C), then terminate the dashboard server."""
     try:
-        webbrowser.open(url)
-    except Exception:  # noqa: BLE001
-        pass
-    return proc
+        if browser_proc is not None:
+            print(
+                f"\nDashboard is running at {url}.\n"
+                "Close the browser window (or press Ctrl+C) to stop the service."
+            )
+            started = time.time()
+            browser_proc.wait()
+            # If Chrome exited almost immediately it probably handed off to an
+            # existing instance - don't tear the server down in that case.
+            if (
+                server_proc is not None
+                and server_proc.poll() is None
+                and (time.time() - started) < 3
+            ):
+                print(
+                    "Browser window closed immediately (handed off to a running\n"
+                    "Chrome); keeping the dashboard up. Press Ctrl+C to stop it."
+                )
+                server_proc.wait()
+            else:
+                print("\nBrowser closed - stopping the dashboard...")
+        elif server_proc is not None:
+            print(f"\nDashboard is running at {url}. Press Ctrl+C to stop it.")
+            server_proc.wait()
+    except KeyboardInterrupt:
+        print("\nCtrl+C received - stopping the dashboard...")
+    finally:
+        if server_proc is not None:
+            _terminate_tree(server_proc)
+            try:
+                server_proc.wait(timeout=10)
+            except Exception:  # noqa: BLE001
+                pass
+            print("Dashboard stopped.")
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +542,23 @@ def main() -> None:
     except Exception:  # noqa: BLE001
         pass
 
+    _start_run_logging()
+
     load_dotenv(_ENV_PATH)
+
+    # Allow launching ONLY the dashboard (skip GitHub/Smartsheet/data-load).
+    #   python main.py --dashboard-only   (aliases: --dashboard, -d)
+    argv = [a.lower() for a in sys.argv[1:]]
+    dashboard_only = any(a in ("--dashboard-only", "--dashboard", "-d") for a in argv)
+    if dashboard_only:
+        agent_url = os.getenv("AGENT_URL", "http://127.0.0.1:8000")
+        print("=" * 70)
+        print("DASHBOARD-ONLY mode: skipping GitHub / Smartsheet / data load.")
+        print("=" * 70)
+        agent_proc, browser_proc = dashboard_service({"agent_url": agent_url})
+        if agent_proc is not None or browser_proc is not None:
+            _run_dashboard_until_closed(agent_proc, browser_proc, agent_url)
+        return
 
     cfg = {
         "gh_user": os.getenv("GITHUB_USERNAME", "").strip(),
@@ -429,7 +594,7 @@ def main() -> None:
     loaded = data_load(cfg)
 
     # --- Service 4: Dashboard (FastAPI app) ----------------------------------
-    agent_proc = dashboard_service(cfg)
+    agent_proc, browser_proc = dashboard_service(cfg)
 
     print("\n" + "=" * 70)
     print("Workflow finished.")
@@ -439,19 +604,10 @@ def main() -> None:
     print(f"  Service 4 Dashboard    : {'RUNNING' if agent_proc else 'reused/failed - see log'}")
     print("=" * 70)
 
-    # Keep the dashboard in the foreground so Ctrl+C stops it cleanly.
-    if agent_proc is not None:
-        print(f"\nDashboard is running at {cfg['agent_url']}. Press Ctrl+C to stop it.")
-        try:
-            agent_proc.wait()
-        except KeyboardInterrupt:
-            print("\nCtrl+C received - stopping the dashboard...")
-            _terminate_tree(agent_proc)
-            try:
-                agent_proc.wait(timeout=10)
-            except Exception:  # noqa: BLE001
-                pass
-            print("Dashboard stopped.")
+    # Keep running until the browser window is closed (or Ctrl+C), then stop
+    # the dashboard server.
+    if agent_proc is not None or browser_proc is not None:
+        _run_dashboard_until_closed(agent_proc, browser_proc, cfg["agent_url"])
 
 
 if __name__ == "__main__":

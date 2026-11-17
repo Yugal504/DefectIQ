@@ -12,5 +12,9 @@ downloads/
 data/
 ~$*.xls*
 
+# Dedicated Chrome profile for the dashboard window (lets the service
+# auto-stop when the window is closed)
+.dashboard_browser_profile/
+
 # Editor / OS
 .DS_Store
