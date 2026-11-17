@@ -148,7 +148,7 @@ def charts(user: dict = Depends(require("view"))):
         "priority_distribution": priority_c.most_common(),
         "validation_distribution": validation_c.most_common(),
         "developer_distribution": dev_c.most_common(12),
-        "module_distribution": module_c.most_common(10),
+        "module_distribution": module_c.most_common(),
         "issue_source_distribution": issue_source_c.most_common(12),
     }
 
