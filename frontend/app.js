@@ -59,6 +59,7 @@ function switchView(view) {
       chartsNeedRender = false;
     } else resizeDashboardCharts();
   }
+  if (view === "insights") loadInsights();
   if (view === "defects") loadDefects();
   if (view === "audit") loadAudit();
 }
@@ -87,48 +88,56 @@ const KPI_STATUS = [
   ["unassigned_defects", "Unassigned", "k-unassigned"],
 ];
 const PLOT_CFG = { displayModeBar: false, responsive: true, scrollZoom: false, doubleClick: false };
-const NO_ZOOM_AXES = { dragmode: false, xaxis: { fixedrange: true }, yaxis: { fixedrange: true } };
-const PAL = ["#0a66c2", "#17a673", "#e0a800", "#d9534f", "#6f42c1", "#0b1f3a", "#00b2a9", "#fd7e14", "#20c997", "#8e44ad"];
+// Dark-theme plot defaults: transparent canvas so the card shows through,
+// light tick/label text, and subtle gridlines that read on a dark panel.
+const PLOT_BG = "rgba(0,0,0,0)";
+const PLOT_FONT_COLOR = "#c4d3ea";
+const PLOT_GRID = "rgba(148,170,200,.16)";
+const NO_ZOOM_AXES = { dragmode: false,
+  xaxis: { fixedrange: true, gridcolor: PLOT_GRID, zerolinecolor: PLOT_GRID },
+  yaxis: { fixedrange: true, gridcolor: PLOT_GRID, zerolinecolor: PLOT_GRID } };
+// Muted, lower-saturation palette that sits calmly on the dark navy canvas.
+const PAL = ["#4a90c4", "#4fb0a2", "#cfa255", "#c47a73", "#8b82b8", "#5b9ec0", "#6ea890", "#bb8a66", "#7faa8c", "#a089b3"];
 const EMPTY_LABELS = ["(none)", "unspecified", "unknown", "(unassigned)", "n/a", ""];
 const isEmptyLabel = (lbl) => EMPTY_LABELS.includes(String(lbl ?? "").trim().toLowerCase());
 const normChartKey = (s) => String(s ?? "").trim().toLowerCase().replace(/\s+/g, " ");
 const CHART_THEMES = {
   status: {
     order: ["Open", "In Progress", "Closed", "Unknown"],
-    colors: { open: "#e0a800", "in progress": "#0a66c2", closed: "#17a673", unknown: "#6b7a90" },
+    colors: { open: "#cfa255", "in progress": "#4a90c4", closed: "#4fb0a2", unknown: "#7a8aa0" },
   },
   priority: {
     order: ["Critical/Urgent", "Critical", "High", "Medium", "Low", "Unknown", "(none)"],
     colors: {
-      "critical/urgent": "#c0392b",
-      critical: "#d9534f",
-      high: "#fd7e14",
-      medium: "#e0a800",
-      low: "#17a673",
-      unknown: "#6b7a90",
-      "(none)": "#9aa8bc",
-      none: "#9aa8bc",
+      "critical/urgent": "#b5544c",
+      critical: "#c47a73",
+      high: "#c08a5e",
+      medium: "#cfa255",
+      low: "#4fb0a2",
+      unknown: "#7a8aa0",
+      "(none)": "#8b97aa",
+      none: "#8b97aa",
     },
   },
   validation: {
     order: ["Matched", "Missing", "Duplicate", "Requires Review", "Unknown"],
-    colors: { matched: "#17a673", missing: "#d9534f", duplicate: "#6f42c1", "requires review": "#e0a800", unknown: "#6b7a90" },
+    colors: { matched: "#4fb0a2", missing: "#c47a73", duplicate: "#8b82b8", "requires review": "#cfa255", unknown: "#7a8aa0" },
   },
   link: {
     order: ["Linked to GitHub", "Not Linked"],
-    colors: { "linked to github": "#17a673", "not linked": "#0a66c2" },
+    colors: { "linked to github": "#4fb0a2", "not linked": "#4a90c4" },
   },
   issueSource: {
     order: ["PROD", "UAT", "SIT", "DEV", "QA", "Exception Triage", "Shared Mailbox", "(none)"],
     colors: {
-      prod: "#d9534f",
-      uat: "#fd7e14",
-      sit: "#0a66c2",
-      dev: "#17a673",
-      qa: "#6f42c1",
-      "exception triage": "#0b1f3a",
-      "shared mailbox": "#00b2a9",
-      "(none)": "#9aa8bc",
+      prod: "#c47a73",
+      uat: "#c08a5e",
+      sit: "#4a90c4",
+      dev: "#4fb0a2",
+      qa: "#8b82b8",
+      "exception triage": "#5b9ec0",
+      "shared mailbox": "#6ea890",
+      "(none)": "#8b97aa",
     },
   },
   module: {
@@ -216,7 +225,7 @@ function renderCharts() {
   }
   _plotlyWaitTries = 0;
   const showEmpty = $("#toggle-empty").checked;
-  const L = { margin: { t: 10, r: 10, b: 40, l: 40 }, font: { size: 11 }, showlegend: false, ...NO_ZOOM_AXES };
+  const L = { paper_bgcolor: PLOT_BG, plot_bgcolor: PLOT_BG, margin: { t: 10, r: 10, b: 40, l: 40 }, font: { size: 11, color: PLOT_FONT_COLOR }, showlegend: false, ...NO_ZOOM_AXES };
   const colors = (n) => Array.from({ length: n }, (_, i) => PAL[i % PAL.length]);
   const pieLegend = { showlegend: true, legend: { orientation: "v", font: { size: 10 } } };
   let d = themedPairs(c.status_distribution, CHART_THEMES.status);
@@ -235,7 +244,7 @@ function renderCharts() {
   const devColors = devItems.map((_, i) => PAL[i % PAL.length]);
   Plotly.newPlot("chart-dev", [
     { type: "bar", orientation: "h", y: devItems.map((x) => x.label).reverse(), x: devItems.map((x) => x.value).reverse(), marker: { color: devColors.slice().reverse() }, hovertemplate: "%{y}: %{x}<extra></extra>" },
-  ], { ...L, margin: { t: 10, r: 10, b: 30, l: 10 }, xaxis: { gridcolor: "#eef2f7", zeroline: false, fixedrange: true }, yaxis: { automargin: true, fixedrange: true } }, PLOT_CFG);
+  ], { ...L, margin: { t: 10, r: 10, b: 30, l: 10 }, xaxis: { gridcolor: PLOT_GRID, zeroline: false, fixedrange: true }, yaxis: { automargin: true, fixedrange: true } }, PLOT_CFG);
   d = moduleChartPairs(c.module_distribution);
   const modBottom = Math.min(200, 56 + Math.max(0, d.labels.length - 4) * 6);
   Plotly.newPlot("chart-module", [{ type: "bar", x: d.labels, y: d.values, marker: { color: d.colors } }], {
@@ -248,17 +257,248 @@ function renderCharts() {
 document.addEventListener("change", (e) => { if (e.target && e.target.id === "toggle-empty") renderCharts(); });
 window.addEventListener("resize", () => {
   if (!$("#view-dashboard").classList.contains("hidden")) resizeDashboardCharts();
+  if (!$("#view-insights").classList.contains("hidden") && typeof Plotly !== "undefined"
+      && document.getElementById("ins-weekly") && document.getElementById("ins-weekly").data) {
+    Plotly.Plots.resize("ins-weekly");
+  }
 });
+
+/* ----------------------------- Insights ----------------------------- */
+const InsState = { filters: { issue_source: "", module: "", priority: "", status: "" }, last: null };
+function insShowEmpty() { const el = $("#ins-toggle-empty"); return !!(el && el.checked); }
+const INS_FILTER_DEFS = [["issue_source", "Issue Source"], ["module", "Module"], ["priority", "Priority"], ["status", "Status"]];
+const INS_KPI_DEFS = [
+  ["total", "Total", "k-ss"], ["open", "Open", "k-open"], ["closed", "Closed", "k-closed"],
+  ["urgent", "Critical / Urgent", "k-missing"], ["unassigned", "Unassigned", "k-unassigned"],
+  ["created_this_week", "Created this week", "k-linked"], ["closed_this_week", "Closed this week", "k-matched"],
+  ["deployed_uat", "Deployed to UAT", "k-progress"],
+];
+const HEAT_BASE = { "open": "224,168,0", "closed": "23,166,115", "in progress": "10,102,194" };
+function heatStyle(val, max, kind) {
+  if (!val) return "";
+  const base = HEAT_BASE[String(kind).toLowerCase()] || "10,102,194";
+  const t = max > 0 ? val / max : 0;
+  return `background: rgba(${base}, ${(0.12 + 0.6 * t).toFixed(2)});`;
+}
+async function loadInsights() {
+  const p = new URLSearchParams();
+  Object.entries(InsState.filters).forEach(([k, v]) => { if (v) p.set(k, v); });
+  try {
+    const r = await apiJSON("/api/insights" + (p.toString() ? "?" + p.toString() : ""));
+    renderInsights(r);
+  } catch (e) { toast(e.message); }
+}
+function renderInsights(r) {
+  InsState.last = r;
+  // filter bar — Reset sits in the same row as the dropdowns
+  $("#ins-filters").innerHTML = INS_FILTER_DEFS.map(([key, label]) => {
+    const opts = r.options[key] || [];
+    const sel = InsState.filters[key];
+    return `<div class="ins-filter"><label>${label}</label><select data-fk="${key}">
+      <option value="">All</option>
+      ${opts.map((o) => `<option ${o === sel ? "selected" : ""}>${esc(o)}</option>`).join("")}
+    </select></div>`;
+  }).join("") +
+    `<div class="ins-filter ins-filter-reset"><label>&nbsp;</label>
+       <button id="ins-reset" class="btn btn-ghost" title="Clear all filters">↺ Reset</button></div>`;
+  $$("#ins-filters select").forEach((s) => s.addEventListener("change", () => { InsState.filters[s.dataset.fk] = s.value; loadInsights(); }));
+  $("#ins-reset").addEventListener("click", resetInsFilters);
+  // KPI tiles
+  $("#ins-kpis").innerHTML = INS_KPI_DEFS.map(([key, label, cls]) =>
+    `<div class="ins-kpi ${cls}"><div class="num">${r.kpis[key] ?? 0}</div><div class="lbl">${label}</div></div>`).join("");
+  renderInsSummary(r.summary);
+  renderInsMatrix(r.matrix);
+  renderInsPriority(r.priority);
+  renderInsWeekly(r.weekly);
+  renderInsCountTable("#ins-promotion", r.promotion, "Workflow Phase", false, "promotion");
+  renderInsCountTable("#ins-issuesource", r.issue_source, "Issue Source", false, "issue_source");
+  renderInsCountTable("#ins-owners", r.owners, "Owner", true, "owner");
+  renderInsUat(r.uat);
+}
+/* Summary as a 7-business-day progress grid (metric rows × dated day columns).
+   Cells for activity/cumulative metrics stay interactive — click to see defects. */
+function insSummaryDrill(type, dayKey) {
+  const minusDays = (iso, n) => {
+    const d = new Date(iso + "T00:00:00");
+    d.setDate(d.getDate() - n);
+    return d.toISOString().slice(0, 10);
+  };
+  switch (type) {
+    case "total": return { created_before: dayKey };
+    case "open": return { open_as_of: dayKey };
+    case "closed_cum": return { status: ["Closed"], closed_before: dayKey };
+    case "ageing": return { open_as_of: dayKey, created_before: minusDays(dayKey, 30) };
+    case "urgent": return { open_as_of: dayKey, priority: ["Critical/Urgent"] };
+    case "created_on": return { created_since: dayKey, created_before: dayKey };
+    case "closed_on": return { status: ["Closed"], closed_since: dayKey, closed_before: dayKey };
+    default: return null;
+  }
+}
+function renderInsSummary(summary) {
+  summary = summary || { days: [], rows: [] };
+  const days = summary.days || [];
+  const head = `<thead><tr><th>Metric</th>${days.map((d) =>
+    `<th class="num" title="${esc(d.key)}">${esc(d.label)}</th>`).join("")}</tr></thead>`;
+  const body = (summary.rows || []).map((r) => {
+    const drillable = !!r.drill;
+    const cells = (r.values || []).map((v, i) => {
+      const cls = `num sumval${i === 0 ? " today" : ""}${drillable ? " cell-click" : ""}`;
+      const data = drillable ? ` data-drill="${esc(r.drill)}" data-day="${esc((days[i] || {}).key || "")}" data-label="${esc((days[i] || {}).label || "")}"` : "";
+      return `<td class="${cls}"${data}>${v}</td>`;
+    }).join("");
+    return `<tr class="sum-${r.tone}"><td class="rowlbl"><span class="tone-dot"></span>${esc(r.metric)}</td>${cells}</tr>`;
+  }).join("");
+  $("#ins-summary").innerHTML = head + `<tbody>${body}</tbody>`;
+  $$("#ins-summary td.cell-click").forEach((td) => td.addEventListener("click", () => {
+    const o = insSummaryDrill(td.dataset.drill, td.dataset.day);
+    if (o) openInsDrill(`${td.closest("tr").querySelector(".rowlbl").textContent.trim()} · ${td.dataset.label}`, o);
+  }));
+}
+function renderInsMatrix(m) {
+  const cols = m.columns;
+  // honor the "None / Unspecified" toggle; recompute totals from visible rows
+  const rows = insShowEmpty() ? m.rows : m.rows.filter((row) => !isEmptyLabel(row.label));
+  const colTotals = cols.map((_, i) => rows.reduce((s, row) => s + (row.cells[i] || 0), 0));
+  const grand = colTotals.reduce((a, b) => a + b, 0);
+  const maxCell = Math.max(1, ...rows.flatMap((row) => row.cells.map((v) => v || 0)));
+  const head = `<thead><tr><th>Module</th>${cols.map((c) => `<th class="num">${c}</th>`).join("")}<th class="num">Total</th></tr></thead>`;
+  const body = rows.map((row) => `<tr>
+    <td class="rowlbl" title="${esc(row.label)}">${esc(row.label)}</td>
+    ${row.cells.map((v, i) => `<td class="num cell-click" data-status="${esc(cols[i])}" data-module="${esc(row.label)}" style="${heatStyle(v, maxCell, cols[i])}">${v || ""}</td>`).join("")}
+    <td class="num total">${row.total}</td></tr>`).join("");
+  const foot = `<tr class="totrow"><td>Total</td>${colTotals.map((v) => `<td class="num">${v}</td>`).join("")}<td class="num">${grand}</td></tr>`;
+  $("#ins-matrix").innerHTML = head + `<tbody>${body}${foot}</tbody>`;
+  $$("#ins-matrix .cell-click").forEach((td) => td.addEventListener("click", () => {
+    const mod = td.dataset.module, st = td.dataset.status;
+    openInsDrill(`${mod} · ${st}`, { module: [mod], status: [st] });
+  }));
+}
+/* Drill-down: show the actual defects behind any clicked Insights number, in a
+   modal, respecting the page's current filters. Click a row for full detail. */
+async function openInsDrill(title, overrides) {
+  const p = new URLSearchParams();
+  const setList = (k, v) => { if (v && v.length) p.set(k, v.join(",")); };
+  // start from the page filters, then apply the clicked cell's overrides
+  const merged = { ...InsState.filters };
+  Object.entries(overrides).forEach(([k, v]) => { merged[k] = v; });
+  Object.entries(merged).forEach(([k, v]) => {
+    const arr = Array.isArray(v) ? v : (v ? [v] : []);
+    setList(k, arr);
+  });
+  $("#modal-title").textContent = title;
+  $("#modal-body").innerHTML = `<div class="muted" style="padding:14px">Loading…</div>`;
+  $("#modal").classList.add("modal-lg");
+  $("#modal").classList.remove("hidden");
+  try {
+    const data = await apiJSON("/api/insights/drill?" + p.toString());
+    if (!data.items.length) {
+      $("#modal-body").innerHTML = `<div class="muted" style="padding:14px">No matching defects.</div>`;
+      return;
+    }
+    const rows = data.items.map((d) => `<tr data-rid="${esc(d.record_id)}">
+      <td>${d.github_issue_id ? "#" + esc(d.github_issue_id) : "—"}</td>
+      <td title="${esc(d.defect_title)}">${esc((d.defect_title || "").slice(0, 70))}</td>
+      <td>${statusPill(d.consolidated_status)}</td>
+      <td>${esc(d.priority)}</td>
+      <td>${esc(d.assigned_developer) || "—"}</td>
+      <td>${esc(d.ntt_category) || "—"}</td>
+      <td>${esc(d.module) || "—"}</td></tr>`).join("");
+    $("#modal-body").innerHTML = `<div class="drill-count muted small">${data.count} defect(s)</div>
+      <div class="table-wrap"><table class="perf-table list">
+      <thead><tr><th>GitHub</th><th>Title</th><th>Status</th><th>Priority</th><th>Assigned To</th><th>Category</th><th>Module</th></tr></thead>
+      <tbody>${rows}</tbody></table></div>`;
+    $$("#modal-body table.list tbody tr").forEach((tr) => tr.addEventListener("click", () => { if (tr.dataset.rid) openDetail(tr.dataset.rid); }));
+  } catch (e) {
+    $("#modal-body").innerHTML = `<div class="error" style="padding:14px">${esc(e.message)}</div>`;
+  }
+}
+function renderInsPriority(allRows) {
+  const rows = insShowEmpty() ? allRows : allRows.filter((r) => !isEmptyLabel(r.label));
+  const max = Math.max(1, ...rows.map((r) => r.total));
+  const head = `<thead><tr><th>Priority</th><th class="num">Open</th><th class="num">Closed</th><th class="num">Total</th></tr></thead>`;
+  const body = rows.map((r) => `<tr>
+    <td class="rowlbl">${esc(r.label)}</td>
+    <td class="num cell-click" data-p="${esc(r.label)}" data-s="Open" style="${heatStyle(r.open, max, 'open')}">${r.open || ""}</td>
+    <td class="num cell-click" data-p="${esc(r.label)}" data-s="Closed" style="${heatStyle(r.closed, max, 'closed')}">${r.closed || ""}</td>
+    <td class="num total cell-click" data-p="${esc(r.label)}" data-s="">${r.total}</td></tr>`).join("");
+  $("#ins-priority").innerHTML = head + `<tbody>${body}</tbody>`;
+  $$("#ins-priority .cell-click").forEach((td) => td.addEventListener("click", () => {
+    const o = { priority: [td.dataset.p] };
+    if (td.dataset.s) o.status = [td.dataset.s];
+    openInsDrill(`${td.dataset.p}${td.dataset.s ? " · " + td.dataset.s : ""}`, o);
+  }));
+}
+function renderInsCountTable(sel, allPairs, header, cleanOwner, drillKey) {
+  const pairs = insShowEmpty() ? allPairs : allPairs.filter(([lbl]) => !isEmptyLabel(lbl));
+  const max = Math.max(1, ...pairs.map((p) => p[1]));
+  const name = (s) => cleanOwner ? String(s || "").replace(/[-_ ]?contractor_cel$/i, "").replace(/_cel$/i, "").replace(/[-_]/g, " ").trim() : s;
+  const body = pairs.map(([lbl, val]) => `<tr class="cell-click" data-v="${esc(lbl)}">
+    <td class="rowlbl" title="${esc(lbl)}">${esc(name(lbl)) || "—"}</td>
+    <td class="num barcell"><span class="ibar" style="width:${Math.round(100 * val / max)}%"></span><span class="bval">${val}</span></td></tr>`).join("")
+    || `<tr><td colspan="2" class="muted" style="text-align:center;padding:12px">No data.</td></tr>`;
+  $(sel).innerHTML = `<thead><tr><th>${header}</th><th class="num">Count</th></tr></thead><tbody>${body}</tbody>`;
+  if (drillKey) {
+    $$(sel + " tr.cell-click").forEach((tr) => tr.addEventListener("click", () => {
+      const o = {}; o[drillKey] = [tr.dataset.v];
+      if (drillKey === "owner") o.status = ["Open"];
+      openInsDrill(name(tr.dataset.v) || tr.dataset.v, o);
+    }));
+  }
+}
+function renderInsWeekly(w) {
+  if (typeof Plotly === "undefined") { setTimeout(() => renderInsWeekly(w), 80); return; }
+  const dayLbl = w.days.map((d) => d.slice(5));
+  const L = { paper_bgcolor: PLOT_BG, plot_bgcolor: PLOT_BG, barmode: "group", margin: { t: 8, r: 8, b: 28, l: 28 }, height: 220, bargap: 0.3, font: { size: 11, color: PLOT_FONT_COLOR },
+    legend: { orientation: "h", y: 1.15, font: { size: 10 } }, ...NO_ZOOM_AXES,
+    xaxis: { type: "category", fixedrange: true }, yaxis: { fixedrange: true, rangemode: "tozero", gridcolor: PLOT_GRID } };
+  Plotly.newPlot("ins-weekly", [
+    { type: "bar", name: "Created", x: dayLbl, y: w.created, marker: { color: "#4a90c4" } },
+    { type: "bar", name: "Closed", x: dayLbl, y: w.closed, marker: { color: "#4fb0a2" } },
+  ], L, PLOT_CFG).then(() => Plotly.Plots.resize("ins-weekly"));
+}
+function renderInsUat(rows) {
+  $("#ins-uat-count").textContent = `(${rows.length})`;
+  const head = `<thead><tr><th>GitHub</th><th>Title</th><th>Module</th><th>Owner</th><th>Priority</th><th>Phase</th></tr></thead>`;
+  const body = rows.map((r) => `<tr data-rid="${esc(r.record_id)}">
+    <td>${r.github_issue_id ? "#" + esc(r.github_issue_id) : "—"}</td>
+    <td title="${esc(r.defect_title)}">${esc((r.defect_title || "").slice(0, 60))}</td>
+    <td>${esc(r.module)}</td><td>${esc(r.assigned_developer)}</td>
+    <td>${esc(r.priority)}</td><td>${esc(r.promotion_status)}</td></tr>`).join("")
+    || `<tr><td colspan="6" class="muted" style="text-align:center;padding:16px">No issues deployed for UAT in this view.</td></tr>`;
+  $("#ins-uat").innerHTML = head + `<tbody>${body}</tbody>`;
+  $$("#ins-uat tbody tr").forEach((tr) => tr.addEventListener("click", () => { if (tr.dataset.rid) openDetail(tr.dataset.rid); }));
+}
+function resetInsFilters() { InsState.filters = { issue_source: "", module: "", priority: "", status: "" }; loadInsights(); }
+$("#ins-toggle-empty").addEventListener("change", () => { if (InsState.last) renderInsights(InsState.last); });
 
 /* ----------------------------- Defects ----------------------------- */
 function statusPill(s) { const cls = { "Open": "p-open", "In Progress": "p-inprogress", "Closed": "p-closed" }[s] || "p-unknown"; return `<span class="pill ${cls}">${s || "—"}</span>`; }
 function filterParams() {
   const p = new URLSearchParams(); const add = (k, v) => { if (v) p.set(k, v); };
-  add("search", $("#f-search").value); add("status", $("#f-status").value); add("source", $("#f-source").value);
-  add("validation", $("#f-validation").value); add("developer", $("#f-developer").value); add("priority", $("#f-priority").value);
+  add("search", $("#f-search").value); add("status", $("#f-status").value);
+  add("issue_source", $("#f-issuesource").value); add("module", $("#f-module").value);
+  add("priority", $("#f-priority").value);
   p.set("sort", State.sort); p.set("order", State.order); return p;
 }
+/* Defects page uses the SAME filter set as Insights (Issue Source, Module,
+   Priority, Status), populated from the shared /api/filter-options endpoint. */
+let _defFilterOpts = null;
+async function ensureDefectFilters() {
+  if (_defFilterOpts) return;
+  _defFilterOpts = await apiJSON("/api/filter-options");
+  const fill = (sel, items, allLbl) => {
+    const el = $(sel); if (!el) return;
+    const cur = el.value;
+    el.innerHTML = `<option value="">${allLbl}</option>` + (items || []).map((o) => `<option>${esc(o)}</option>`).join("");
+    el.value = cur;
+  };
+  fill("#f-issuesource", _defFilterOpts.issue_source, "All Issue Sources");
+  fill("#f-module", _defFilterOpts.module, "All Modules");
+  fill("#f-priority", _defFilterOpts.priority, "All Priorities");
+  fill("#f-status", _defFilterOpts.status, "All Statuses");
+}
 async function loadDefects() {
+  await ensureDefectFilters();
   const p = filterParams(); p.set("page", State.page); p.set("page_size", State.pageSize);
   const data = await apiJSON("/api/defects?" + p.toString());
   State.totalPages = data.pages || 1;
@@ -294,6 +534,14 @@ $("#defect-tbody").addEventListener("click", (e) => {
 });
 $("#btn-apply").addEventListener("click", () => { State.page = 1; loadDefects(); });
 $("#f-search").addEventListener("keydown", (e) => { if (e.key === "Enter") { State.page = 1; loadDefects(); } });
+// dropdowns reload immediately on change, like the Insights filters
+["#f-issuesource", "#f-module", "#f-priority", "#f-status"].forEach((sel) =>
+  $(sel).addEventListener("change", () => { State.page = 1; loadDefects(); }));
+$("#f-reset").addEventListener("click", () => {
+  $("#f-search").value = "";
+  ["#f-issuesource", "#f-module", "#f-priority", "#f-status"].forEach((sel) => { $(sel).value = ""; });
+  State.page = 1; loadDefects();
+});
 $("#pg-prev").addEventListener("click", () => { if (State.page > 1) { State.page--; loadDefects(); } });
 $("#pg-next").addEventListener("click", () => { if (State.page < State.totalPages) { State.page++; loadDefects(); } });
 $$("#defect-table th[data-sort]").forEach((th) => th.addEventListener("click", () => {
@@ -316,6 +564,7 @@ async function openDetail(id) {
     ["Development Progress", d.development_progress], ["Latest Comment", d.latest_comment], ["Description", d.description]];
   $("#modal-body").innerHTML = rows.map(([k, v]) => `<div class="detail-row"><div class="k">${k}</div><div class="detail-value">${esc(v) || "—"}</div></div>`).join("") +
     (d.github_url ? `<div style="margin-top:14px"><a class="btn" href="${d.github_url}" target="_blank">Open in GitHub ↗</a></div>` : "");
+  $("#modal").classList.remove("modal-lg");
   $("#modal").classList.remove("hidden");
 }
 const STATUS_OPTS = ["Open", "In Progress", "Closed", "Unknown"];
@@ -335,6 +584,7 @@ async function openForm(id) {
       <div class="full"><label>Description</label><textarea id="in-desc" rows="3">${esc(d.description)}</textarea></div>
     </div>
     <div class="modal-actions"><button class="btn" id="form-cancel">Cancel</button><button class="btn btn-primary" id="form-save">${id ? "Save changes" : "Create defect"}</button></div>`;
+  $("#modal").classList.remove("modal-lg");
   $("#modal").classList.remove("hidden");
   $("#form-cancel").addEventListener("click", closeModal);
   $("#form-save").addEventListener("click", () => saveForm(id));
@@ -374,13 +624,48 @@ $("#exp-smartsheet").addEventListener("click", () => fetchDownload("/api/export/
 $("#exp-issues").addEventListener("click", () => fetchDownload("/api/export/source/issue-statuses"));
 
 /* ----------------------------- Chat (docked, visual-first, interactive) ----------------------------- */
-const SUGGESTIONS = ["Defect summary", "How many are open?", "Owner-wise distribution", "By issue source", "Unassigned defects", "Any duplicates?"];
+const DEFAULT_SUGGESTIONS = ["Defect summary", "How many critical defects are open?", "Which module has the most open defects?", "Oldest open defects", "Who has the most open urgent defects?", "By issue source", "Any duplicates?"];
+const SUGG_KEY = "defectiq.suggestions";
 const LIST_TOOLS = ["list_defects", "unassigned_defects", "reconciliation_gaps", "search_defects", "defect_detail"];
 let chatHistory = [], chatInit = false, chartSeq = 0, chatPending = false;
+
+/* Frequently-asked questions are editable and persisted per browser. */
+function loadSuggestions() {
+  try { const s = JSON.parse(localStorage.getItem(SUGG_KEY)); if (Array.isArray(s) && s.length) return s; } catch (e) { /* ignore */ }
+  return DEFAULT_SUGGESTIONS.slice();
+}
+function saveSuggestions(arr) { localStorage.setItem(SUGG_KEY, JSON.stringify(arr)); }
+function renderSuggestions() {
+  const items = loadSuggestions();
+  $("#chat-suggestions").innerHTML =
+    items.map((s) => `<button class="sugg">${esc(s)}</button>`).join("") +
+    `<button class="sugg-edit" title="Edit frequently asked questions">✎ Edit</button>`;
+  $$("#chat-suggestions button.sugg").forEach((b) => b.addEventListener("click", () => { $("#chat-text").value = b.textContent; sendChat(); }));
+  $("#chat-suggestions .sugg-edit").addEventListener("click", openSuggestionEditor);
+}
+function openSuggestionEditor() {
+  const items = loadSuggestions();
+  $("#modal-title").textContent = "Edit frequently asked questions";
+  $("#modal-body").innerHTML = `
+    <p class="muted small" style="margin-top:0">One question per line. These show as quick-ask chips in the assistant.</p>
+    <textarea id="sugg-edit-text" style="width:100%;min-height:230px;padding:10px;border:1px solid var(--border);border-radius:8px;background:#0b1626;color:var(--text);font-family:inherit;font-size:13px;line-height:1.7;resize:vertical">${esc(items.join("\n"))}</textarea>
+    <div class="modal-actions">
+      <button id="sugg-reset" class="btn btn-ghost">Reset to default</button>
+      <button id="sugg-save" class="btn btn-primary">Save</button>
+    </div>`;
+  $("#modal").classList.remove("hidden");
+  $("#sugg-reset").addEventListener("click", () => { $("#sugg-edit-text").value = DEFAULT_SUGGESTIONS.join("\n"); });
+  $("#sugg-save").addEventListener("click", () => {
+    const lines = $("#sugg-edit-text").value.split("\n").map((s) => s.trim()).filter(Boolean);
+    saveSuggestions(lines.length ? lines : DEFAULT_SUGGESTIONS.slice());
+    renderSuggestions();
+    $("#modal").classList.add("hidden");
+    toast("Frequently asked questions updated");
+  });
+}
 function initChat() {
   if (chatInit) return; chatInit = true;
-  $("#chat-suggestions").innerHTML = SUGGESTIONS.map((s) => `<button>${s}</button>`).join("");
-  $$("#chat-suggestions button").forEach((b) => b.addEventListener("click", () => { $("#chat-text").value = b.textContent; sendChat(); }));
+  renderSuggestions();
   addBotMessage("Hi! I'm DefectIQ. Ask about defect counts, statuses, owners, issue sources, reconciliation gaps, or a specific defect.", null);
 }
 $("#chat-form").addEventListener("submit", (e) => { e.preventDefault(); sendChat(); });
@@ -414,12 +699,12 @@ function distChartPairs(rows) {
 function miniChartLayout(c, horiz) {
   const maxV = Math.max(1, ...c.values.map((v) => Number(v) || 0));
   const yTop = Math.ceil(maxV * 1.12);
-  const base = { font: { size: 10 }, height: 200, dragmode: false, bargap: 0.28, showlegend: false };
+  const base = { paper_bgcolor: PLOT_BG, plot_bgcolor: PLOT_BG, font: { size: 10, color: PLOT_FONT_COLOR }, height: 200, dragmode: false, bargap: 0.28, showlegend: false };
   if (horiz) {
     return {
       ...base,
       margin: { t: 6, r: 10, b: 30, l: 120 },
-      xaxis: { fixedrange: true, rangemode: "tozero", range: [0, yTop], showgrid: true, gridcolor: "#eef2f7" },
+      xaxis: { fixedrange: true, rangemode: "tozero", range: [0, yTop], showgrid: true, gridcolor: PLOT_GRID },
       // type:category keeps labels (incl. ISO dates) as discrete bars, never a time axis
       yaxis: { fixedrange: true, automargin: true, type: "category" },
     };
@@ -430,7 +715,7 @@ function miniChartLayout(c, horiz) {
     margin: { t: 6, r: 8, b: many ? 72 : 48, l: 44 },
     // type:category prevents Plotly from treating a lone ISO date as a time axis
     xaxis: { fixedrange: true, automargin: true, tickangle: many ? -35 : -20, type: "category" },
-    yaxis: { fixedrange: true, rangemode: "tozero", range: [0, yTop], showgrid: true, gridcolor: "#eef2f7", zeroline: false },
+    yaxis: { fixedrange: true, rangemode: "tozero", range: [0, yTop], showgrid: true, gridcolor: PLOT_GRID, zeroline: false },
   };
 }
 function renderMiniChart(c) {

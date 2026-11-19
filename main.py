@@ -43,7 +43,14 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
-_ROOT = Path(__file__).resolve().parent
+# When bundled by PyInstaller (sys.frozen), user-editable/output files (.env,
+# data/, logs/, downloads/, script.txt) live NEXT TO the .exe, not inside the
+# bundle. In normal "python main.py" runs, that's just this file's folder.
+_FROZEN = bool(getattr(sys, "frozen", False))
+if _FROZEN:
+    _ROOT = Path(sys.executable).resolve().parent
+else:
+    _ROOT = Path(__file__).resolve().parent
 _ENV_PATH = _ROOT / ".env"
 
 # ---------------------------------------------------------------------------
@@ -405,27 +412,105 @@ def _dashboard_browser() -> str:
     return found or ""
 
 
+class _SubprocDashServer:
+    """Dashboard running as a child `python run.py` process (dev mode)."""
+
+    def __init__(self, proc: subprocess.Popen):
+        self.proc = proc
+
+    def poll(self):
+        return self.proc.poll()
+
+    def wait(self):
+        return self.proc.wait()
+
+    def stop(self):
+        _terminate_tree(self.proc)
+        try:
+            self.proc.wait(timeout=10)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+class _InProcDashServer:
+    """Dashboard running in-process via uvicorn in a background thread. Used
+    in the frozen .exe, where spawning a separate Python is not possible."""
+
+    def __init__(self, server, thread: threading.Thread):
+        self.server = server
+        self.thread = thread
+
+    def poll(self):
+        return None if self.thread.is_alive() else 0
+
+    def wait(self):
+        while self.thread.is_alive():
+            self.thread.join(timeout=0.5)
+
+    def stop(self):
+        try:
+            self.server.should_exit = True
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            self.thread.join(timeout=10)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def _start_inprocess_dashboard(host: str, port: int):
+    """Run the FastAPI app with uvicorn inside this process (background thread)."""
+    import uvicorn
+
+    from app.main import app as fastapi_app  # imported lazily so dev path is unaffected
+
+    config = uvicorn.Config(
+        fastapi_app,
+        host=host,
+        port=port,
+        log_level="info",
+        loop="asyncio",
+        http="h11",
+        ws="none",
+    )
+    server = uvicorn.Server(config)
+    # Not on the main thread -> uvicorn must not try to install signal handlers.
+    server.install_signal_handlers = lambda: None
+    thread = threading.Thread(target=server.run, daemon=True)
+    thread.start()
+    return _InProcDashServer(server, thread)
+
+
 def dashboard_service(cfg: dict):
-    """Start the dashboard (run.py) and open the app. Returns the Popen or None."""
+    """Start the dashboard and open the app. Returns (server, browser_proc).
+
+    `server` is a controller with poll()/wait()/stop() (or None if an app was
+    already running and we just reused it)."""
     print("\n" + "=" * 70)
-    print("SERVICE 4 - Dashboard: start run.py and open the app")
+    print("SERVICE 4 - Dashboard: start the web app and open it")
     print("=" * 70)
 
-    script = _ROOT / "run.py"
     url = cfg["agent_url"]
-    if not script.exists():
-        print(f"run.py not found in: {_ROOT}")
-        return None
-
-    python_exe = _dashboard_python()
     parsed = urlparse(url)
     host = parsed.hostname or "127.0.0.1"
     port = parsed.port or 8000
 
-    proc = None
+    server = None
     if _wait_for_port(host, port, timeout=1):
         print(f"An app is already listening on {host}:{port}; reusing it.")
+    elif _FROZEN:
+        print(f"Starting dashboard in-process (uvicorn) on {host}:{port} ...")
+        server = _start_inprocess_dashboard(host, port)
+        if _wait_for_port(host, port, timeout=60):
+            print("App is up.")
+        else:
+            print(f"App did not respond on {host}:{port} within 60s; opening browser anyway.")
     else:
+        script = _ROOT / "run.py"
+        if not script.exists():
+            print(f"run.py not found in: {_ROOT}")
+            return None, None
+        python_exe = _dashboard_python()
         print(f"Starting dashboard: \"{python_exe}\" run.py  (cwd={_ROOT})")
         proc = subprocess.Popen(
             [python_exe, "run.py"],
@@ -437,6 +522,7 @@ def dashboard_service(cfg: dict):
         )
         # Mirror the server's output to console + the run log file.
         threading.Thread(target=_pump_output, args=(proc.stdout,), daemon=True).start()
+        server = _SubprocDashServer(proc)
         print(f"Waiting for the app at {url} ...")
         if _wait_for_port(host, port, timeout=60):
             print("App is up.")
@@ -490,12 +576,12 @@ def dashboard_service(cfg: dict):
         except Exception:  # noqa: BLE001
             pass
 
-    return proc, browser_proc
+    return server, browser_proc
 
 
-def _run_dashboard_until_closed(server_proc, browser_proc, url: str) -> None:
+def _run_dashboard_until_closed(server, browser_proc, url: str) -> None:
     """Keep running until the user closes the browser window (or presses
-    Ctrl+C), then terminate the dashboard server."""
+    Ctrl+C), then stop the dashboard server."""
     try:
         if browser_proc is not None:
             print(
@@ -507,29 +593,25 @@ def _run_dashboard_until_closed(server_proc, browser_proc, url: str) -> None:
             # If Chrome exited almost immediately it probably handed off to an
             # existing instance - don't tear the server down in that case.
             if (
-                server_proc is not None
-                and server_proc.poll() is None
+                server is not None
+                and server.poll() is None
                 and (time.time() - started) < 3
             ):
                 print(
                     "Browser window closed immediately (handed off to a running\n"
                     "Chrome); keeping the dashboard up. Press Ctrl+C to stop it."
                 )
-                server_proc.wait()
+                server.wait()
             else:
                 print("\nBrowser closed - stopping the dashboard...")
-        elif server_proc is not None:
+        elif server is not None:
             print(f"\nDashboard is running at {url}. Press Ctrl+C to stop it.")
-            server_proc.wait()
+            server.wait()
     except KeyboardInterrupt:
         print("\nCtrl+C received - stopping the dashboard...")
     finally:
-        if server_proc is not None:
-            _terminate_tree(server_proc)
-            try:
-                server_proc.wait(timeout=10)
-            except Exception:  # noqa: BLE001
-                pass
+        if server is not None:
+            server.stop()
             print("Dashboard stopped.")
 
 

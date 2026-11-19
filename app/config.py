@@ -2,13 +2,19 @@
 from __future__ import annotations
 
 import os
+import sys
 from functools import lru_cache
 from pathlib import Path
 
 from dotenv import load_dotenv
 
-# Project root = parent of the "app" package directory.
-ROOT_DIR = Path(__file__).resolve().parent.parent
+# Project root. When frozen by PyInstaller, user-editable/output files (.env,
+# data/, logs/, exports/) live NEXT TO the .exe; otherwise it's the parent of
+# the "app" package directory.
+if getattr(sys, "frozen", False):
+    ROOT_DIR = Path(sys.executable).resolve().parent
+else:
+    ROOT_DIR = Path(__file__).resolve().parent.parent
 
 # Load .env from project root if present (does not override real env vars).
 load_dotenv(ROOT_DIR / ".env")
@@ -25,11 +31,6 @@ def _int(name: str, default: int) -> int:
         return int(os.getenv(name, str(default)))
     except (ValueError, TypeError):
         return default
-
-
-def _csv_set(name: str, default: str) -> set[str]:
-    raw = os.getenv(name, default) or ""
-    return {item.strip().lower() for item in raw.split(",") if item.strip()}
 
 
 # Default demo user directory (username | plaintext password | role | display name).
@@ -97,16 +98,16 @@ class Settings:
         self.app_title: str = os.getenv("APP_TITLE", "Defect Management Agentic AI").strip()
         self.app_version: str = os.getenv("APP_VERSION", "1.0.0").strip()
 
+        # --- Excel write-back (dashboard UPDATE/DELETE -> source export sheets) ---
+        # When enabled, edits/deletes in the dashboard are written back to the
+        # "GitHub Export" and "Smart Sheet Export" sheets of the workbook via
+        # Excel COM (preserves PivotTables, macros and formulas). Requires
+        # Microsoft Excel + pywin32 on the machine running the service.
+        self.excel_writeback_enabled: bool = _bool(os.getenv("EXCEL_WRITEBACK_ENABLED"), True)
+
         # --- Pagination ---
         self.default_page_size: int = _int("DEFAULT_PAGE_SIZE", 25)
         self.max_page_size: int = _int("MAX_PAGE_SIZE", 500)
-
-        # --- Data cleansing ---
-        # GitHub titles treated as test/placeholder records and excluded.
-        self.placeholder_github_titles: set[str] = _csv_set(
-            "PLACEHOLDER_GITHUB_TITLES",
-            "test issue,test,dummy issue,sample issue,placeholder",
-        )
 
         # --- Security ---
         self.app_secret_key: str = os.getenv("APP_SECRET_KEY", "change-me-in-production")

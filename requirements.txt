@@ -19,8 +19,9 @@ websocket-client>=1.8.0
 # --- Azure OpenAI (chatbot LLM layer, optional at runtime) ---
 openai==1.57.0
 
-# --- Optional: Excel COM automation to preserve pivots on write (Windows only) ---
-# pywin32>=306
+# --- Excel COM automation: write dashboard UPDATE/DELETE back to the export
+#     sheets while preserving PivotTables/macros (Windows + Excel required) ---
+pywin32>=306
 
 # --- Optional live-extraction SDKs (dashboard service bot, off by default) ---
 # smartsheet-python-sdk==3.0.3

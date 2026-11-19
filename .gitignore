@@ -16,5 +16,11 @@ data/
 # auto-stop when the window is closed)
 .dashboard_browser_profile/
 
+# PyInstaller build artifacts and the packaged .exe folder (contains .env +
+# data). The build recipe (DefectIQ.spec, build_exe.py) stays tracked.
+build/
+dist/
+DefectIQ_App/
+
 # Editor / OS
 .DS_Store

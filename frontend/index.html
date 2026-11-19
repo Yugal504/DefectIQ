@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DefectIQ · NTT DATA</title>
   <link rel="icon" href="/static/images/nttdata-blue-logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=24" />
+  <link rel="stylesheet" href="/static/styles.css?v=46" />
   <!-- Plotly is self-hosted and deferred so a blocked/slow corporate CDN can
        never stall the login page (previously broke sign-in in managed Edge). -->
   <script defer src="/static/vendor/plotly.min.js?v=2.35.2" charset="utf-8"></script>
@@ -16,7 +16,7 @@
     <form id="login-form" class="login-card">
       <div class="ntt-logo lg"><img src="/static/images/nttdata-blue-logo.svg" alt="NTT DATA" /></div>
       <div class="product-name">Defect<span>IQ</span></div>
-      <p class="muted">Agentic AI Defect Management</p>
+      <p class="muted">Defect Management &amp; Analytics</p>
       <label>Username</label>
       <input id="username" autocomplete="username" value="admin" />
       <label>Password</label>
@@ -41,6 +41,7 @@
       </div>
       <nav class="top-nav">
         <button data-view="dashboard" class="tab active">Dashboard</button>
+        <button data-view="insights" class="tab">Insights</button>
         <button data-view="defects" class="tab">Defects</button>
         <button data-view="audit" class="tab" id="nav-audit">Audit Log</button>
       </nav>
@@ -80,6 +81,67 @@
           </div>
         </section>
 
+        <!-- Insights -->
+        <section id="view-insights" class="view hidden">
+          <div class="dash-header">
+            <h2 class="dash-title">Insights &amp; Performance</h2>
+            <div class="ins-head-right">
+              <label class="switch" title="Include defects with no Module / Priority / Source in the panels">
+                <span class="switch-label">Show “None / Unspecified”</span>
+                <input type="checkbox" id="ins-toggle-empty" />
+                <span class="switch-track"><span class="switch-thumb"></span></span>
+              </label>
+            </div>
+          </div>
+          <!-- interactive filter bar -->
+          <div id="ins-filters" class="ins-filters"></div>
+          <!-- KPI tiles -->
+          <div id="ins-kpis" class="ins-kpi-grid"></div>
+
+          <div class="ins-grid">
+            <!-- Summary — 7-day progress, full window width -->
+            <div class="card wide">
+              <h3>Summary <span class="muted small">— last 7 business days</span></h3>
+              <div class="perf-wrap"><table id="ins-summary" class="perf-table summary"></table></div>
+            </div>
+            <!-- Matrix on the left; Issue Source (top) + By Priority (below) stacked on the right -->
+            <div class="ins-split">
+              <div class="card">
+                <h3>Defects by Module &amp; Status</h3>
+                <div class="perf-wrap"><table id="ins-matrix" class="perf-table"></table></div>
+              </div>
+              <div class="ins-col-left">
+                <div class="card">
+                  <h3>By Issue Source</h3>
+                  <div class="perf-wrap"><table id="ins-issuesource" class="perf-table"></table></div>
+                </div>
+                <div class="card">
+                  <h3>By Priority <span class="muted small">(open / closed)</span></h3>
+                  <div class="perf-wrap"><table id="ins-priority" class="perf-table"></table></div>
+                </div>
+              </div>
+            </div>
+            <!-- Rest of the visuals below -->
+            <div class="card span1">
+              <h3>This Week — Created vs Closed</h3>
+              <div id="ins-weekly" class="chart"></div>
+            </div>
+            <div class="card span1">
+              <h3>By Workflow Phase <span class="muted small">(GitHub board)</span></h3>
+              <div class="perf-wrap"><table id="ins-promotion" class="perf-table"></table></div>
+            </div>
+            <div class="card span1">
+              <h3>Open Defects by Owner</h3>
+              <div class="perf-wrap"><table id="ins-owners" class="perf-table"></table></div>
+            </div>
+            <!-- Issues deployed for UAT -->
+            <div class="card wide">
+              <h3>Issues Deployed for UAT <span class="muted small" id="ins-uat-count"></span></h3>
+              <div class="table-wrap"><table id="ins-uat" class="perf-table list"></table></div>
+            </div>
+          </div>
+        </section>
+
         <!-- Defects -->
         <section id="view-defects" class="view hidden">
           <div class="defects-actionbar">
@@ -101,12 +163,12 @@
           </div>
           <div class="toolbar">
             <input id="f-search" class="input" placeholder="Search title, id, developer, module…" />
-            <select id="f-status" class="input"><option value="">All statuses</option><option>Open</option><option>In Progress</option><option>Closed</option><option>Unknown</option></select>
-            <select id="f-source" class="input"><option value="">All sources</option><option>Both</option><option>GitHub</option></select>
-            <select id="f-validation" class="input"><option value="">All validation</option><option>Matched</option><option>Missing</option><option>Duplicate</option><option>Requires Review</option></select>
-            <input id="f-developer" class="input" placeholder="Owner" />
-            <input id="f-priority" class="input" placeholder="Priority" />
+            <select id="f-issuesource" class="input"><option value="">All Issue Sources</option></select>
+            <select id="f-module" class="input"><option value="">All Modules</option></select>
+            <select id="f-priority" class="input"><option value="">All Priorities</option></select>
+            <select id="f-status" class="input"><option value="">All Statuses</option></select>
             <button id="btn-apply" class="btn btn-primary">Apply</button>
+            <button id="f-reset" class="btn btn-ghost">↺ Reset</button>
           </div>
           <div class="table-wrap">
             <table id="defect-table">
@@ -139,7 +201,7 @@
         </section>
       </main>
 
-      <!-- RIGHT: AI assistant (always visible) -->
+      <!-- RIGHT: DefectIQ assistant (always visible) -->
       <aside class="chat-dock">
         <div class="chat-head">
           <div class="chat-title"><span class="mark">IQ</span> DefectIQ Assistant</div>
@@ -167,6 +229,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=24"></script>
+  <script src="/static/app.js?v=46"></script>
 </body>
 </html>

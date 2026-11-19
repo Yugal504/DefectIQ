@@ -97,6 +97,21 @@ def _status_in(text: str) -> str | None:
     return None
 
 
+# Priority keywords -> the value passed to count/list tools. The tool itself
+# maps synonyms (critical/blocker/P1 -> Urgent) so pass the spoken word through.
+_PRIORITY_WORDS = (
+    "critical", "blocker", "urgent", "highest", "p1", "sev1",
+    "high", "p2", "medium", "moderate", "p3", "low", "minor", "p4",
+)
+
+
+def _priority_in(text: str) -> str | None:
+    for kw in _PRIORITY_WORDS:
+        if re.search(rf"\b{re.escape(kw)}\b", text):
+            return kw
+    return None
+
+
 def route(message: str) -> tuple[str, dict[str, Any]]:
     """Return (tool_name, kwargs) for a message."""
     m = (message or "").lower().strip()
@@ -121,6 +136,35 @@ def route(message: str) -> tuple[str, dict[str, Any]]:
         return "reconciliation_gaps", {"kind": "duplicates"}
     if "mismatch" in m or "inconsistent status" in m:
         return "reconciliation_gaps", {"kind": "mismatched_status"}
+
+    # Aging / oldest / stale questions
+    if any(w in m for w in ("oldest", "stale", "aging", "ageing", "how old", "longest open", "long-open", "overdue")):
+        return "aging_report", {"status": _status_in(m) or "Open"}
+
+    # "Top / most / highest / which <dimension>" ranking questions
+    if any(w in m for w in ("most", "highest", "top ", "largest", "maximum", " max ", "greatest", "biggest", "which", "rank")):
+        dim = None
+        if "module" in m:
+            dim = "module"
+        elif "owner" in m or "developer" in m or "assignee" in m or "who " in m:
+            dim = "owner"
+        elif "priority" in m:
+            dim = "priority"
+        elif "issue source" in m or "source" in m:
+            dim = "issue_source"
+        elif "phase" in m or "workflow" in m or "promotion" in m:
+            dim = "promotion"
+        elif "category" in m:
+            dim = "category"
+        if dim:
+            kwargs: dict[str, Any] = {"group_by": dim}
+            st = _status_in(m)
+            pr = _priority_in(m)
+            if st:
+                kwargs["status"] = st
+            if pr:
+                kwargs["priority"] = pr
+            return "top_groups", kwargs
 
     # Distribution by a field
     if "issue source" in m or "issuesource" in m or "by source" in m:
@@ -163,16 +207,32 @@ def route(message: str) -> tuple[str, dict[str, Any]]:
 
     # Counts
     status = _status_in(m)
+    priority = _priority_in(m)
     if any(k in m for k in ("how many", "count", "number of", "total")):
+        kwargs: dict[str, Any] = {}
         if status:
-            return "count_defects", {"status": status}
+            kwargs["status"] = status
+        if priority:
+            kwargs["priority"] = priority
+        if kwargs:
+            return "count_defects", kwargs
         return "summary", {}
 
-    # List with status
-    if status and any(k in m for k in ("list", "show", "provide", "which", "all")):
-        return "list_defects", {"status": status}
-    if status:
-        return "count_defects", {"status": status}
+    # List with status/priority
+    if (status or priority) and any(k in m for k in ("list", "show", "provide", "which", "all")):
+        kwargs = {}
+        if status:
+            kwargs["status"] = status
+        if priority:
+            kwargs["priority"] = priority
+        return "list_defects", kwargs
+    if status or priority:
+        kwargs = {}
+        if status:
+            kwargs["status"] = status
+        if priority:
+            kwargs["priority"] = priority
+        return "count_defects", kwargs
 
     # A bare id
     gid = ID_RE.search(m)

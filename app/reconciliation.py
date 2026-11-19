@@ -176,7 +176,17 @@ def reconcile(data: WorkbookData, github_repo: str) -> list[ConsolidatedDefect]:
         gh_status = gh.get("status")
         proj_status = gh.get("project_status")
         ss_status = ss.get("status") if ss else None
-        consolidated = _consolidated_status(gh_status, proj_status, ss_status)
+        # Consolidated status mirrors GitHub's authoritative OPEN/CLOSED flag so
+        # the dashboard totals match the GitHub Export sheet exactly. The richer
+        # board workflow phase (Testing in Progress, Deployed to UAT, ...) is
+        # still retained per-defect in `development_progress` for the detail view.
+        gh_flag = (gh_status or "").strip().upper()
+        if gh_flag == "CLOSED":
+            consolidated = "Closed"
+        elif gh_flag == "OPEN":
+            consolidated = "Open"
+        else:
+            consolidated = _consolidated_status(gh_status, proj_status, ss_status)
         assigned = gh.get("assigned_to")
 
         status_mismatch = bool(
@@ -243,11 +253,15 @@ def reconciliation_meta(data: WorkbookData, defects: list[ConsolidatedDefect]) -
     issue_statuses_count = len(defects)
     linked = sum(1 for d in defects if d.customer_defect_id)  # has a Smart Sheet Action ID
     not_linked = issue_statuses_count - linked
-    matched = sum(1 for d in defects if d.data_validation_status == "Matched")
 
-    # Smartsheet actions that are never referenced by any Issue Statuses row.
+    # Smartsheet actions that are (not) referenced by any Issue Statuses row.
+    # Counted in DISTINCT Smartsheet Action IDs so this trio reconciles exactly:
+    #   total_in_smartsheet = matched_defects + missing_in_github
+    # (a single Action ID linked by two GitHub issues is still one match here,
+    # whereas the per-defect "linked_to_github" card may be higher).
     linked_action_ids = {d.customer_defect_id for d in defects if d.customer_defect_id}
     missing_in_github = len(ss_action_ids - linked_action_ids)
+    matched = len(ss_action_ids & linked_action_ids)
 
     return {
         "total_in_smartsheet": smartsheet_total,
