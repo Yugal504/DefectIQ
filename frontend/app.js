@@ -96,6 +96,16 @@ const PLOT_GRID = "rgba(148,170,200,.16)";
 const NO_ZOOM_AXES = { dragmode: false,
   xaxis: { fixedrange: true, gridcolor: PLOT_GRID, zerolinecolor: PLOT_GRID },
   yaxis: { fixedrange: true, gridcolor: PLOT_GRID, zerolinecolor: PLOT_GRID } };
+const PIE_TEXT = { color: "#ffffff", size: 11 };
+function pieTrace(d, { hole } = {}) {
+  const t = {
+    type: "pie", labels: d.labels, values: d.values, marker: { colors: d.colors }, sort: false,
+    textfont: PIE_TEXT, outsidetextfont: PIE_TEXT, insidetextfont: PIE_TEXT,
+    hoverlabel: { font: { color: "#ffffff", size: 12 } },
+  };
+  if (hole != null) t.hole = hole;
+  return t;
+}
 // Muted, lower-saturation palette that sits calmly on the dark navy canvas.
 const PAL = ["#4a90c4", "#4fb0a2", "#cfa255", "#c47a73", "#8b82b8", "#5b9ec0", "#6ea890", "#bb8a66", "#7faa8c", "#a089b3"];
 const EMPTY_LABELS = ["(none)", "unspecified", "unknown", "(unassigned)", "n/a", ""];
@@ -225,19 +235,24 @@ function renderCharts() {
   }
   _plotlyWaitTries = 0;
   const showEmpty = $("#toggle-empty").checked;
-  const L = { paper_bgcolor: PLOT_BG, plot_bgcolor: PLOT_BG, margin: { t: 10, r: 10, b: 40, l: 40 }, font: { size: 11, color: PLOT_FONT_COLOR }, showlegend: false, ...NO_ZOOM_AXES };
+  const L = {
+    paper_bgcolor: PLOT_BG, plot_bgcolor: PLOT_BG, margin: { t: 10, r: 10, b: 40, l: 40 },
+    font: { size: 11, color: PLOT_FONT_COLOR }, showlegend: false,
+    hoverlabel: { font: { color: "#ffffff", size: 12 } },
+    ...NO_ZOOM_AXES,
+  };
   const colors = (n) => Array.from({ length: n }, (_, i) => PAL[i % PAL.length]);
-  const pieLegend = { showlegend: true, legend: { orientation: "v", font: { size: 10 } } };
+  const pieLegend = { showlegend: true, legend: { orientation: "v", font: { size: 10, color: PLOT_FONT_COLOR } } };
   let d = themedPairs(c.status_distribution, CHART_THEMES.status);
-  Plotly.newPlot("chart-status", [{ type: "pie", labels: d.labels, values: d.values, hole: .5, marker: { colors: d.colors }, sort: false }], { ...L, ...pieLegend }, PLOT_CFG);
+  Plotly.newPlot("chart-status", [pieTrace(d, { hole: 0.5 })], { ...L, ...pieLegend }, PLOT_CFG);
   d = themedPairs(c.issue_source_distribution, CHART_THEMES.issueSource);
   Plotly.newPlot("chart-issuesource", [{ type: "bar", x: d.labels, y: d.values, marker: { color: d.colors } }], { ...L, margin: { t: 10, r: 10, b: 70, l: 40 } }, PLOT_CFG);
   d = themedPairs(c.source_comparison, CHART_THEMES.link);
-  Plotly.newPlot("chart-source", [{ type: "pie", labels: d.labels, values: d.values, marker: { colors: d.colors }, sort: false }], { ...L, ...pieLegend }, PLOT_CFG);
+  Plotly.newPlot("chart-source", [pieTrace(d)], { ...L, ...pieLegend }, PLOT_CFG);
   d = themedPairs(c.priority_distribution, CHART_THEMES.priority);
   Plotly.newPlot("chart-priority", [{ type: "bar", x: d.labels, y: d.values, marker: { color: d.colors } }], { ...L, margin: { t: 10, r: 10, b: 48, l: 40 } }, PLOT_CFG);
   d = themedPairs(c.validation_distribution, CHART_THEMES.validation);
-  Plotly.newPlot("chart-validation", [{ type: "pie", labels: d.labels, values: d.values, marker: { colors: d.colors }, sort: false }], { ...L, ...pieLegend }, PLOT_CFG);
+  Plotly.newPlot("chart-validation", [pieTrace(d)], { ...L, ...pieLegend }, PLOT_CFG);
   const devRows = cleanChartRows(c.developer_distribution);
   const owner = (s) => String(s || "").replace(/[-_ ]?contractor_cel$/i, "").replace(/_cel$/i, "").replace(/[-_]/g, " ").trim();
   const devItems = devRows.map(([lbl, val]) => ({ label: owner(lbl), value: val })).sort((a, b) => b.value - a.value);

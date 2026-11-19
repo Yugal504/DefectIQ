@@ -101,6 +101,8 @@ body{margin:0;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var
 
 /* charts */
 .chart-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;grid-auto-rows:1fr;min-width:0}
+#view-dashboard .hoverlayer text{fill:#fff!important}
+#view-dashboard .pielayer text.slicetext{fill:#fff!important}
 .card{background:var(--card);border-radius:12px;padding:14px;box-shadow:var(--shadow);min-width:0;overflow:hidden;border:1px solid var(--line)}
 .card.wide{grid-column:1/-1}
 .card h3{margin:0 0 8px;font-size:13.5px;color:var(--navy)}
