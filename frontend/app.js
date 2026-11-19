@@ -317,6 +317,13 @@ function renderInsights(r) {
 }
 /* Summary as a 7-business-day progress grid (metric rows × dated day columns).
    Cells for activity/cumulative metrics stay interactive — click to see defects. */
+function formatSummaryDayTh(label) {
+  const s = String(label || "");
+  const m = s.match(/^(\d+)(st|nd|rd|th)\s+(\w+)$/i);
+  if (!m) return esc(s);
+  const [, day, suf, mon] = m;
+  return `${esc(day)}<sup class="day-ord">${esc(suf.toLowerCase())}</sup> <span class="day-mon">${esc(mon)}</span>`;
+}
 function insSummaryDrill(type, dayKey) {
   const minusDays = (iso, n) => {
     const d = new Date(iso + "T00:00:00");
@@ -338,7 +345,7 @@ function renderInsSummary(summary) {
   summary = summary || { days: [], rows: [] };
   const days = summary.days || [];
   const head = `<thead><tr><th>Metric</th>${days.map((d) =>
-    `<th class="num" title="${esc(d.key)}">${esc(d.label)}</th>`).join("")}</tr></thead>`;
+    `<th class="num day-hdr" title="${esc(d.key)}">${formatSummaryDayTh(d.label)}</th>`).join("")}</tr></thead>`;
   const body = (summary.rows || []).map((r) => {
     const drillable = !!r.drill;
     const cells = (r.values || []).map((v, i) => {
@@ -497,11 +504,23 @@ async function ensureDefectFilters() {
   fill("#f-priority", _defFilterOpts.priority, "All Priorities");
   fill("#f-status", _defFilterOpts.status, "All Statuses");
 }
+function updateDefectSortHeaders() {
+  $$("#defect-table th[data-sort]").forEach((th) => {
+    th.classList.remove("sort-asc", "sort-desc", "sort-idle");
+    if (th.dataset.sort === State.sort) th.classList.add(State.order === "asc" ? "sort-asc" : "sort-desc");
+    else th.classList.add("sort-idle");
+    const on = th.dataset.sort === State.sort;
+    th.setAttribute("aria-sort", on ? (State.order === "asc" ? "ascending" : "descending") : "none");
+  });
+}
 async function loadDefects() {
   await ensureDefectFilters();
   const p = filterParams(); p.set("page", State.page); p.set("page_size", State.pageSize);
   const data = await apiJSON("/api/defects?" + p.toString());
   State.totalPages = data.pages || 1;
+  const total = data.total ?? 0;
+  $("#defect-total").innerHTML = `Total defects: <strong>${Number(total).toLocaleString()}</strong>`;
+  updateDefectSortHeaders();
   const canU = State.perms.includes("update"), canD = State.perms.includes("delete");
   $("#defect-tbody").innerHTML = data.items.map((d) => `
     <tr data-id="${d.record_id}">
@@ -547,8 +566,11 @@ $("#pg-next").addEventListener("click", () => { if (State.page < State.totalPage
 $$("#defect-table th[data-sort]").forEach((th) => th.addEventListener("click", () => {
   const col = th.dataset.sort;
   if (State.sort === col) State.order = State.order === "asc" ? "desc" : "asc"; else { State.sort = col; State.order = "asc"; }
+  State.page = 1;
+  updateDefectSortHeaders();
   loadDefects();
 }));
+updateDefectSortHeaders();
 
 /* ----------------------------- Detail + CRUD ----------------------------- */
 function closeModal() { $("#modal").classList.add("hidden"); }

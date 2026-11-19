@@ -108,7 +108,10 @@ body{margin:0;font-family:"Segoe UI",Roboto,Helvetica,Arial,sans-serif;color:var
 
 /* defects */
 .defects-actionbar{display:flex;align-items:center;justify-content:space-between;background:var(--card);padding:14px 16px;border-radius:12px;box-shadow:var(--shadow);margin-bottom:12px;border:1px solid var(--line)}
+.ab-head{display:flex;flex-direction:column;gap:5px;min-width:0}
 .ab-title{font-weight:700;color:var(--text)}
+.ab-total{font-size:13px;font-weight:600;letter-spacing:.2px}
+.ab-total strong{color:var(--navy2);font-weight:800;font-variant-numeric:tabular-nums}
 .ab-actions{display:flex;gap:10px;align-items:center}
 .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px}
 .input{padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:#0e1a2c;color:var(--text)}
@@ -134,6 +137,12 @@ tbody tr:hover{background:var(--hover)}
 #view-defects .defects-actionbar,#view-defects .toolbar,#view-defects .pager{flex:0 0 auto}
 #view-defects .table-wrap{flex:1 1 auto;min-height:0;max-height:none}
 #view-defects .pager{margin-top:12px}
+#defect-table th[data-sort]{padding-right:26px;user-select:none;position:relative}
+#defect-table th[data-sort]:hover{background:rgba(47,139,239,.12);color:var(--text)}
+#defect-table th[data-sort]::after{position:absolute;right:8px;top:50%;transform:translateY(-50%);font-size:11px;line-height:1;opacity:.45;font-weight:700}
+#defect-table th[data-sort].sort-idle::after{content:"⇅";opacity:.35}
+#defect-table th[data-sort].sort-asc::after{content:"▲";color:var(--accent);opacity:1}
+#defect-table th[data-sort].sort-desc::after{content:"▼";color:var(--accent);opacity:1}
 
 /* dropdown */
 .dropdown{position:relative}
@@ -288,6 +297,9 @@ tbody tr:hover{background:var(--hover)}
 .perf-table.summary td.sumval{font-size:13.5px;font-weight:700;color:var(--text)}
 .perf-table.summary td.sumval.today{font-size:15px;font-weight:800;color:var(--navy);background:rgba(47,139,239,.08)}
 .perf-table.summary th.num{text-align:right}
+.perf-table.summary th.day-hdr{text-transform:none;letter-spacing:.2px;font-weight:700;color:var(--navy2)}
+.perf-table.summary th.day-hdr sup.day-ord{font-size:.58em;font-weight:800;vertical-align:super;line-height:0;text-transform:lowercase;letter-spacing:0;margin-left:.5px}
+.perf-table.summary th.day-hdr .day-mon{text-transform:uppercase}
 .perf-table.summary td.sumval.cell-click{cursor:pointer}
 .perf-table.summary td.sumval.cell-click:hover{outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px}
 .perf-table.summary .tone-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;background:var(--muted);vertical-align:middle}

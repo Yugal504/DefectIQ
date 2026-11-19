@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>DefectIQ · NTT DATA</title>
   <link rel="icon" href="/static/images/nttdata-blue-logo.svg" type="image/svg+xml" />
-  <link rel="stylesheet" href="/static/styles.css?v=46" />
+  <link rel="stylesheet" href="/static/styles.css?v=48" />
   <!-- Plotly is self-hosted and deferred so a blocked/slow corporate CDN can
        never stall the login page (previously broke sign-in in managed Edge). -->
   <script defer src="/static/vendor/plotly.min.js?v=2.35.2" charset="utf-8"></script>
@@ -71,13 +71,13 @@
           <h4 class="kpi-group-title">Status Overview</h4>
           <div id="kpi-status" class="kpi-grid status-row"></div>
           <div class="chart-grid">
+            <div class="card wide"><h3>Defects by Module</h3><div id="chart-module" class="chart"></div></div>
             <div class="card"><h3>Defects by Status</h3><div id="chart-status" class="chart"></div></div>
             <div class="card"><h3>Defects by Issue Source</h3><div id="chart-issuesource" class="chart"></div></div>
-            <div class="card"><h3>GitHub-linked vs Not Linked</h3><div id="chart-source" class="chart"></div></div>
             <div class="card"><h3>Defects by Priority</h3><div id="chart-priority" class="chart"></div></div>
+            <div class="card"><h3>GitHub-linked vs Not Linked</h3><div id="chart-source" class="chart"></div></div>
             <div class="card"><h3>Data Validation</h3><div id="chart-validation" class="chart"></div></div>
             <div class="card"><h3>Open Defects by Owner</h3><div id="chart-dev" class="chart"></div></div>
-            <div class="card wide"><h3>Defects by Module</h3><div id="chart-module" class="chart"></div></div>
           </div>
         </section>
 
@@ -145,7 +145,10 @@
         <!-- Defects -->
         <section id="view-defects" class="view hidden">
           <div class="defects-actionbar">
-            <div class="ab-title">Defect Management <span class="muted small">— insert, update, delete &amp; export records</span></div>
+            <div class="ab-head">
+              <div class="ab-title">Defect Management <span class="muted small">— insert, update, delete &amp; export records</span></div>
+              <div id="defect-total" class="ab-total muted">Total defects: —</div>
+            </div>
             <div class="ab-actions">
               <button id="btn-new" class="btn btn-primary perm-create">＋ New Defect</button>
               <div class="dropdown">
@@ -229,6 +232,6 @@
   </div>
 
   <div id="toast" class="toast hidden"></div>
-  <script src="/static/app.js?v=46"></script>
+  <script src="/static/app.js?v=48"></script>
 </body>
 </html>
