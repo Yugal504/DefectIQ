@@ -1,16 +1,14 @@
 """
 Smartsheet sheet export over the Chrome DevTools Protocol (CDP).
 
-Opens the configured sheet (SMARTSHEET_SHEET_URL / SMARTSHEET_SHEET_NAME in the
-workspace SMARTSHEET_WORKSPACE), then drives the sheet menu:
+Opens the configured sheet (SMARTSHEET_SHEET_URL), then drives the sheet menu:
 
-    kebab (More options)  ->  Export  ->  Microsoft Excel
+    org: File -> Export -> Export to Microsoft Excel
+    personal: More options -> Export -> Microsoft Excel
 
 and waits for the .xlsx download to land in SMARTSHEET_DOWNLOAD_PATH.
 
-The Export submenu only opens on a *trusted* hover, so we drive a real mouse
-move via Input.dispatchMouseEvent (synthetic DOM mouse events are ignored by
-Smartsheet's menu library).
+Menu clicks use Input.dispatchMouseEvent for trusted mouse input.
 
 Self-sufficient: if the sheet redirects to login, it logs in first.
 """
@@ -32,14 +30,10 @@ _ROOT = Path(__file__).resolve().parent.parent
 _ENV_PATH = _ROOT / ".env"
 load_dotenv(_ENV_PATH)
 
-KEBAB_SIG = "M11.2 5.2"  # 'd' prefix of the vertical 3-dot (More options) icon.
-
-
 def _ev(client: CDP, expr: str):
     return client.eval(expr).get("result", {}).get("value")
 
 
-# --- real mouse input (needed for the hover-activated Export submenu) --------
 def _mouse_move(client: CDP, x: int, y: int) -> None:
     client.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "x": x, "y": y, "buttons": 0})
 
@@ -52,12 +46,18 @@ def _mouse_click(client: CDP, x: int, y: int) -> None:
                 {"type": "mouseReleased", "x": x, "y": y, "button": "left", "buttons": 0, "clickCount": 1})
 
 
-def _menuitem_center(client: CDP, text: str):
+def _menuitem_center(client: CDP, text: str, selector: str = 'td.clsStandardMenuText, [role="menuitem"]'):
     js = f"""
     (() => {{
       const w = {json.dumps(text.lower())};
-      const e = [...document.querySelectorAll('[role="menuitem"]')]
-        .find(el => el.offsetParent !== null && (el.textContent||'').trim().toLowerCase() === w);
+            const e = [...document.querySelectorAll({json.dumps(selector)})]
+                .find(el => {{
+                    const rect = el.getBoundingClientRect();
+                    return rect.width > 0 && rect.height > 0
+                        && getComputedStyle(el).visibility !== 'hidden'
+                        && !el.closest('[aria-disabled="true"], [disabled]')
+                        && (el.textContent||'').trim().toLowerCase() === w;
+                }});
       if (!e) return null;
       const r = e.getBoundingClientRect();
       return JSON.stringify({{x: Math.round(r.left + r.width/2), y: Math.round(r.top + r.height/2)}});
@@ -67,68 +67,43 @@ def _menuitem_center(client: CDP, text: str):
     return json.loads(v) if v else None
 
 
-def _menu_has(client: CDP, text: str) -> bool:
-    return bool(_ev(client, f"""
-        Array.from(document.querySelectorAll('[role="menuitem"]'))
-          .some(e => e.offsetParent !== null && (e.textContent||'').trim() === {json.dumps(text)})
-    """))
-
-
-def _click_kebab_rank(client: CDP, rank: int) -> str:
-    js = f"""
-    (() => {{
-      const sig = {json.dumps(KEBAB_SIG)};
-      const arr = [];
-      for (const svg of document.querySelectorAll('svg')) {{
-        const p = svg.querySelector('path'); if (!p) continue;
-        if (!(p.getAttribute('d')||'').startsWith(sig)) continue;
-        const r = svg.getBoundingClientRect(); if (r.width === 0) continue;
-        arr.push([r.top, svg]);
-      }}
-      arr.sort((a, b) => a[0] - b[0]);
-      const pick = arr[{rank}];
-      if (!pick) return 'NO_KEBAB';
-      (pick[1].closest('button,[role="button"],span') || pick[1]).click();
-      return 'CLICKED@' + Math.round(pick[0]);
-    }})()
-    """
-    return _ev(client, js)
-
-
-def _escape(client: CDP) -> None:
-    _ev(client, "document.body.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))")
-    time.sleep(0.4)
-
-
-def _wait_for_kebab(client: CDP, timeout: int = 30) -> bool:
-    """Poll until the sheet toolbar (kebab 'More options' icon) has rendered."""
-    js = f"""
-    Array.from(document.querySelectorAll('svg')).some(s => {{
-      const p = s.querySelector('path');
-      return p && (p.getAttribute('d')||'').startsWith({json.dumps(KEBAB_SIG)})
-             && s.getBoundingClientRect().width > 0;
-    }})
-    """
+def _wait_for_menuitem(client: CDP, text: str, timeout: int = 30,
+                       selector: str = 'td.clsStandardMenuText, [role="menuitem"]'):
     deadline = time.time() + timeout
     while time.time() < deadline:
-        if _ev(client, js):
-            return True
-        time.sleep(1)
-    return False
+        center = _menuitem_center(client, text, selector)
+        if center:
+            return center
+        time.sleep(0.5)
+    return None
 
 
-def _open_sheet_menu(client: CDP) -> bool:
-    """Open the sheet-level More-options menu (not the workspace one)."""
-    for rank in (1, 0, 2, 3):
-        res = _click_kebab_rank(client, rank)
-        if res == "NO_KEBAB":
-            continue
-        time.sleep(1.2)
-        # The sheet menu is identified by having both Export and Sheet properties.
-        if _menu_has(client, "Export") and _menu_has(client, "Sheet properties"):
-            print(f"Sheet menu opened via kebab rank {rank} ({res}).")
-            return True
-        _escape(client)
+def _open_personal_sheet_menu(client: CDP) -> bool:
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        for rank in (1, 0, 2, 3):
+            clicked = _ev(client, f"""
+                (() => {{
+                    const icons = [...document.querySelectorAll('svg')]
+                        .filter(icon => icon.getBoundingClientRect().width > 0
+                            && (icon.querySelector('path')?.getAttribute('d') || '')
+                                .startsWith('M11.2 5.2'))
+                        .sort((first, second) => first.getBoundingClientRect().top
+                            - second.getBoundingClientRect().top);
+                    const icon = icons[{rank}];
+                    if (!icon) return false;
+                    (icon.closest('button,[role="button"],span') || icon).click();
+                    return true;
+                }})()
+            """)
+            if not clicked:
+                continue
+            time.sleep(1)
+            if _menuitem_center(client, "Export") and _menuitem_center(client, "Sheet properties"):
+                return True
+            client.send("Input.dispatchKeyEvent", {"type": "keyDown", "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
+            client.send("Input.dispatchKeyEvent", {"type": "keyUp", "key": "Escape", "code": "Escape", "windowsVirtualKeyCode": 27})
+        time.sleep(0.5)
     return False
 
 
@@ -153,6 +128,9 @@ def _wait_for_download(folder: Path, before: dict, timeout: int) -> Path | None:
 def smartsheet_export(client: CDP, download_dir: Path, timeout: int = 120) -> Path | None:
     """Export the open sheet to Excel and return the downloaded file path."""
     load_dotenv(_ENV_PATH)
+    service_type = os.getenv("SERVICE_TYPE", "org").strip().lower()
+    if service_type not in {"org", "personal"}:
+        raise ValueError("SERVICE_TYPE must be 'org' or 'personal'.")
     sheet_url = os.getenv("SMARTSHEET_SHEET_URL", "").strip()
     if not sheet_url:
         sys.exit("SMARTSHEET_SHEET_URL is missing in .env")
@@ -181,50 +159,43 @@ def smartsheet_export(client: CDP, download_dir: Path, timeout: int = 120) -> Pa
         client.send("Page.navigate", {"url": sheet_url})
         time.sleep(8)
 
-    # Wait for the grid toolbar to actually render (title alone is unreliable).
-    if not _wait_for_kebab(client, timeout=30):
-        print("Sheet toolbar did not render in time.")
-        return None
-    title = _ev(client, "document.title")
-    print(f"Sheet loaded: {title}")
-
-    if not _open_sheet_menu(client):
-        print("Could not open the sheet More-options menu.")
-        return None
-
-    # Reveal the Export submenu via a *trusted* hover. A single static mouse
-    # move can land before the item is interactive, so we jiggle (approach from
-    # the side) and poll until 'Microsoft Excel' appears.
-    exp = _menuitem_center(client, "Export")
-    if not exp:
-        print("Export menu item not found.")
-        return None
-
-    submenu_open = False
-    for _ in range(12):
-        exp = _menuitem_center(client, "Export") or exp
-        _mouse_move(client, exp["x"] - 60, exp["y"])   # approach from the left
-        time.sleep(0.1)
-        _mouse_move(client, exp["x"], exp["y"])        # move onto the item
-        time.sleep(0.5)
-        if _menu_has(client, "Microsoft Excel"):
-            submenu_open = True
-            break
-    if not submenu_open:
-        print("'Microsoft Excel' option not found in Export submenu.")
-        return None
-
-    xlsx_center = _menuitem_center(client, "Microsoft Excel")
-    if not xlsx_center:
-        print("'Microsoft Excel' option not found in Export submenu.")
-        return None
-
+    print(f"Smartsheet service type: {service_type}")
+    menu_steps = (
+        ("File", 'span, button, [role="menuitem"]'),
+        ("Export", 'td.clsStandardMenuText, [role="menuitem"]'),
+        ("Export to Microsoft Excel", 'td.clsStandardMenuText, [role="menuitem"]'),
+    )
+    if service_type == "personal":
+        if not _open_personal_sheet_menu(client):
+            print("Could not open the personal sheet More-options menu.")
+            return None
+        menu_steps = (
+            ("Export", '[role="menuitem"]'),
+            ("Microsoft Excel", '[role="menuitem"]'),
+        )
     before = _existing_xlsx(download_dir)
-    print("Clicking 'Microsoft Excel'...")
-    # Approach the submenu item from the side to keep the flyout open, then click.
-    _mouse_move(client, xlsx_center["x"] - 20, xlsx_center["y"])
-    time.sleep(0.2)
-    _mouse_click(client, xlsx_center["x"], xlsx_center["y"])
+    for label, selector in menu_steps:
+        if service_type == "personal" and label == "Microsoft Excel":
+            center = None
+            for attempt in range(12):
+                export_center = _menuitem_center(client, "Export")
+                if export_center:
+                    _mouse_move(client, export_center["x"] - 60, export_center["y"])
+                    time.sleep(0.1)
+                    _mouse_move(client, export_center["x"], export_center["y"])
+                time.sleep(0.5)
+                center = _menuitem_center(client, label, selector)
+                if center:
+                    break
+        else:
+            center = _wait_for_menuitem(client, label, selector=selector)
+        if not center:
+            print(f"'{label}' menu item did not appear in time.")
+            return None
+        if service_type == "personal" and label == "Export":
+            continue
+        print(f"Clicking '{label}'...")
+        _mouse_click(client, center["x"], center["y"])
 
     print("Waiting for the .xlsx download...")
     path = _wait_for_download(download_dir, before, timeout)

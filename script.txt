@@ -11,7 +11,7 @@
 // Required API failures stop the export. A 404 on optional issue-field-values
 // is marked UNAVAILABLE; Project fields are still retrieved independently.
 (async () => {
-    const repo = "Yugal504/helloworld"; // CHANGE to your owner/repository
+    const repo = "CE-Neurostack/celanese-cx-cockpit"; // CHANGE to your owner/repository
     let token = prompt("GitHub PAT with repository Issues and Projects read access (Cancel to stop):");
     if (token === null) return;
     if (!token.trim()) { console.error("A token is required for the Projects GraphQL API."); return; }
