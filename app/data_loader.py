@@ -144,15 +144,6 @@ def _resolve_columns(
     return resolved
 
 
-def _is_placeholder_github(rec: dict) -> bool:
-    """Data cleansing: GitHub titles that are obvious test/placeholder records
-    and must be excluded. The set is configured via PLACEHOLDER_GITHUB_TITLES."""
-    from .config import get_settings
-
-    title = (rec.get("title") or "").strip().lower()
-    return title in get_settings().placeholder_github_titles
-
-
 class WorkbookData:
     """Parsed contents of the tracker workbook."""
 
@@ -203,7 +194,11 @@ def load_workbook_data(path: str | Path) -> WorkbookData:
             if row is None or all(c is None for c in row):
                 continue
             rec = _row_to_dict(row, cols)
-            if rec.get("issue_id") and not _is_placeholder_github(rec):
+            # Count every GitHub Export row that has an IssueID. The business-
+            # maintained "Issue Statuses" sheet is the authoritative universe, so
+            # we do NOT drop rows by title (that would silently miss tracked
+            # issues whose title merely reads like a test, e.g. "Test Issue").
+            if rec.get("issue_id"):
                 github_rows.append(rec)
 
     smartsheet_rows: list[dict] = []

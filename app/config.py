@@ -33,11 +33,6 @@ def _int(name: str, default: int) -> int:
         return default
 
 
-def _csv_set(name: str, default: str) -> set[str]:
-    raw = os.getenv(name, default) or ""
-    return {item.strip().lower() for item in raw.split(",") if item.strip()}
-
-
 # Default demo user directory (username | plaintext password | role | display name).
 _DEFAULT_DEMO_USERS = (
     "admin|admin123|Administrator|Administrator;"
@@ -113,13 +108,6 @@ class Settings:
         # --- Pagination ---
         self.default_page_size: int = _int("DEFAULT_PAGE_SIZE", 25)
         self.max_page_size: int = _int("MAX_PAGE_SIZE", 500)
-
-        # --- Data cleansing ---
-        # GitHub titles treated as test/placeholder records and excluded.
-        self.placeholder_github_titles: set[str] = _csv_set(
-            "PLACEHOLDER_GITHUB_TITLES",
-            "test issue,test,dummy issue,sample issue,placeholder",
-        )
 
         # --- Security ---
         self.app_secret_key: str = os.getenv("APP_SECRET_KEY", "change-me-in-production")

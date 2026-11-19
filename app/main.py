@@ -206,14 +206,82 @@ def charts(user: dict = Depends(require("view"))):
     }
 
 
+# ------------------------------------------------------------------ insights
+def _csv_list(value: Optional[str]) -> list[str]:
+    return [v.strip() for v in (value or "").split(",") if v.strip()]
+
+
+@app.get("/api/insights")
+def insights(
+    user: dict = Depends(require("view")),
+    issue_source: Optional[str] = None,
+    module: Optional[str] = None,
+    priority: Optional[str] = None,
+    status: Optional[str] = None,
+):
+    from . import insights as _insights
+
+    filters = {
+        "issue_source": _csv_list(issue_source),
+        "module": _csv_list(module),
+        "priority": _csv_list(priority),
+        "status": _csv_list(status),
+    }
+    return _insights.build_insights(get_store(), filters)
+
+
+@app.get("/api/insights/drill")
+def insights_drill(
+    user: dict = Depends(require("view")),
+    issue_source: Optional[str] = None,
+    module: Optional[str] = None,
+    priority: Optional[str] = None,
+    status: Optional[str] = None,
+    promotion: Optional[str] = None,
+    owner: Optional[str] = None,
+    unassigned: Optional[str] = None,
+    created_since: Optional[str] = None,
+    created_before: Optional[str] = None,
+    closed_since: Optional[str] = None,
+    closed_before: Optional[str] = None,
+    open_as_of: Optional[str] = None,
+):
+    """Return the actual defects behind a clicked Insights number."""
+    from . import insights as _insights
+
+    filters = {
+        "issue_source": _csv_list(issue_source),
+        "module": _csv_list(module),
+        "priority": _csv_list(priority),
+        "status": _csv_list(status),
+        "promotion": _csv_list(promotion),
+        "owner": _csv_list(owner),
+        "unassigned": unassigned,
+        "created_since": created_since,
+        "created_before": created_before,
+        "closed_since": closed_since,
+        "closed_before": closed_before,
+        "open_as_of": open_as_of,
+    }
+    rows = _insights.drill_defects(get_store(), filters)
+    return {"count": len(rows), "items": rows}
+
+
 # ------------------------------------------------------------------- defects
 def _filter_sort(defects, params) -> list:
+    from .insights import norm_priority
+
     search = (params.get("search") or "").strip().lower()
     status = (params.get("status") or "").strip().lower()
     developer = (params.get("developer") or "").strip().lower()
-    priority = (params.get("priority") or "").strip().lower()
+    priority = (params.get("priority") or "").strip()
     source = (params.get("source") or "").strip().lower()
     validation = (params.get("validation") or "").strip().lower()
+    issue_source = (params.get("issue_source") or "").strip().lower()
+    module = (params.get("module") or "").strip().lower()
+
+    def _exact(val, filt, empty="(none)") -> bool:
+        return ((val or "").strip() or empty).lower() == filt
 
     def keep(d) -> bool:
         if status and (d.consolidated_status or "").lower() != status:
@@ -222,9 +290,13 @@ def _filter_sort(defects, params) -> list:
             return False
         if validation and (d.data_validation_status or "").lower() != validation:
             return False
+        if issue_source and not _exact(d.issue_source, issue_source):
+            return False
+        if module and not _exact(d.module, module):
+            return False
         if developer and developer not in (d.assigned_developer or "").lower():
             return False
-        if priority and priority not in (d.priority or "").lower():
+        if priority and norm_priority(d.priority) != priority:
             return False
         if search:
             hay = " ".join(
@@ -245,6 +317,20 @@ def _filter_sort(defects, params) -> list:
     return rows
 
 
+@app.get("/api/filter-options")
+def filter_options(user: dict = Depends(require("view"))):
+    """Shared filter option lists so the Defects page uses the same filters as Insights."""
+    from . import insights as _insights
+
+    all_d = get_store().all()
+    return {
+        "issue_source": _insights._distinct(all_d, "issue_source", "(none)"),
+        "module": _insights._distinct(all_d, "module", "(none)"),
+        "priority": ["Critical/Urgent", "High", "Medium", "Low", "Unspecified"],
+        "status": ["Open", "In Progress", "Closed", "Unknown"],
+    }
+
+
 @app.get("/api/defects")
 def list_defects(
     user: dict = Depends(require("view")),
@@ -254,13 +340,16 @@ def list_defects(
     priority: Optional[str] = None,
     source: Optional[str] = None,
     validation: Optional[str] = None,
+    issue_source: Optional[str] = None,
+    module: Optional[str] = None,
     sort: str = "last_updated",
     order: str = "desc",
     page: int = Query(1, ge=1),
     page_size: int = Query(_settings.default_page_size, ge=1, le=_settings.max_page_size),
 ):
     params = dict(search=search, status=status, developer=developer, priority=priority,
-                  source=source, validation=validation, sort=sort, order=order)
+                  source=source, validation=validation, issue_source=issue_source,
+                  module=module, sort=sort, order=order)
     rows = _filter_sort(get_store().all(), params)
     total = len(rows)
     start = (page - 1) * page_size

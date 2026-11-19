@@ -361,6 +361,14 @@ def data_load_service() -> bool:
                 _upsert_rows(ss_ws, ss_header, ss_rows, "Smartsheet Export", None, ss_key)
             else:
                 _load_rows(ss_ws, ss_header, ss_rows, "Smartsheet Export", None, mode)
+        # Stamp the "Last Refreshed" marker (Issue Statuses sheet, B1) so the
+        # dashboard's "Data as of" reflects THIS data load. Matches the cell the
+        # dashboard reads (app/data_loader._extract_last_refreshed).
+        is_ws = _find_sheet(wb, "issuestatuses")
+        if is_ws is not None:
+            refreshed = datetime.now().strftime("Last Refreshed: %m/%d/%Y %I:%M:%S %p")
+            is_ws.cell(row=1, column=2, value=refreshed)
+            print(f"  Stamped '{refreshed}' on Issue Statuses!B1.")
         wb.save(master)
         print(f"Master workbook saved: {master.name}")
     except Exception:

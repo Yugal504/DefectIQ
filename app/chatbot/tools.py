@@ -81,10 +81,31 @@ def _match_source(d: ConsolidatedDefect, source: Optional[str]) -> bool:
     return (d.source_availability or "").lower() == source.strip().lower()
 
 
+# This data uses Smartsheet's Low / Medium / High / Urgent scale (there is no
+# literal "Critical"). Users commonly say "critical"/"blocker"/"P1" for the top
+# severity, so map those synonyms onto the real top value, "Urgent".
+_PRIORITY_SYNONYMS = {
+    "critical": "urgent",
+    "crit": "urgent",
+    "blocker": "urgent",
+    "highest": "urgent",
+    "p1": "urgent",
+    "sev1": "urgent",
+    "severity 1": "urgent",
+    "p2": "high",
+    "p3": "medium",
+    "p4": "low",
+    "moderate": "medium",
+    "minor": "low",
+}
+
+
 def _match_priority(d: ConsolidatedDefect, priority: Optional[str]) -> bool:
     if not priority:
         return True
-    return priority.strip().lower() in (d.priority or "").lower()
+    want = priority.strip().lower()
+    want = _PRIORITY_SYNONYMS.get(want, want)
+    return want in (d.priority or "").lower()
 
 
 class DefectTools:
@@ -285,6 +306,94 @@ class DefectTools:
             "count": len(rows),
             "rows": [_row(d) for d in rows[:50]],
             "extra": {},
+        }
+
+    def top_groups(
+        self,
+        group_by: str = "module",
+        status: Optional[str] = None,
+        priority: Optional[str] = None,
+        source: Optional[str] = None,
+        limit: int = 5,
+    ) -> dict:
+        """Rank the groups with the most defects for a field, with optional
+        status/priority/source filters. Answers 'which module/owner/priority has
+        the most open/urgent defects', 'top owners', etc."""
+        import re as _re
+
+        field_map = {
+            "module": "module", "owner": "assigned_developer", "developer": "assigned_developer",
+            "assignee": "assigned_developer", "priority": "priority", "issue_source": "issue_source",
+            "source": "issue_source", "promotion": "development_progress", "workflow": "development_progress",
+            "phase": "development_progress", "status": "consolidated_status", "category": "ntt_category",
+        }
+        gb = (group_by or "module").strip().lower()
+        field = field_map.get(gb, "module")
+        rows = [
+            d for d in self.store.all()
+            if _match_status(d, status) and _match_priority(d, priority) and _match_source(d, source)
+        ]
+        counter: Counter = Counter()
+        for d in rows:
+            if field == "assigned_developer":
+                for owner in _re.split(r"[;/,]", d.assigned_developer or ""):
+                    owner = owner.strip()
+                    if owner:
+                        counter[owner] += 1
+            else:
+                counter[getattr(d, field) or "(none)"] += 1
+        ranked = counter.most_common(limit)
+        parts = []
+        if priority:
+            parts.append(f"{priority}")
+        if status:
+            parts.append(f"{status.lower()}")
+        scope = (" ".join(parts) + " ") if parts else ""
+        top = ", ".join(f"{k} ({v})" for k, v in ranked)
+        return {
+            "summary": f"Top {gb} by {scope}defect count: {top}." if ranked else f"No {scope}defects found.",
+            "count": len(ranked),
+            "rows": [{"label": k, "count": v} for k, v in ranked],
+            "extra": {},
+        }
+
+    def aging_report(self, status: str = "Open") -> dict:
+        """Age buckets for defects (default Open) by creation date, plus the
+        oldest few. Answers 'oldest/stale defects', 'how old are open defects'."""
+        now = datetime.now()
+        buckets: Counter = Counter()
+        aged: list[tuple[int, ConsolidatedDefect]] = []
+        for d in self.store.all():
+            if status and (d.consolidated_status or "").lower() != status.strip().lower():
+                continue
+            dt = _parse_dt(d.github_created or d.created_date)
+            if not dt:
+                continue
+            age = (now - dt).days
+            if age <= 7:
+                b = "0-7 days"
+            elif age <= 30:
+                b = "8-30 days"
+            elif age <= 90:
+                b = "31-90 days"
+            else:
+                b = "90+ days"
+            buckets[b] += 1
+            aged.append((age, d))
+        order = ["0-7 days", "8-30 days", "31-90 days", "90+ days"]
+        aged.sort(key=lambda x: x[0], reverse=True)
+        total = sum(buckets.values())
+        dist = ", ".join(f"{b} ({buckets[b]})" for b in order if buckets.get(b))
+        oldest = ""
+        if aged:
+            d0 = aged[0][1]
+            oldest = f" Oldest: #{d0.github_issue_id or d0.record_id} '{(d0.defect_title or '')[:40]}' ({aged[0][0]} days)."
+        return {
+            "summary": f"{total} {status.lower()} defect(s) by age: {dist}.{oldest}" if total
+            else f"No {status.lower()} defects with a creation date.",
+            "count": total,
+            "rows": [{"label": b, "count": buckets.get(b, 0)} for b in order if buckets.get(b)],
+            "extra": {"oldest": [_row(d) for _, d in aged[:10]]},
         }
 
     def search_defects(self, text: str, limit: int = 25) -> dict:
@@ -517,6 +626,47 @@ TOOL_SCHEMAS = [
                     }
                 },
                 "required": ["kind"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "top_groups",
+            "description": (
+                "Rank which groups have the MOST defects. Use for 'which/what X has the most/highest/top "
+                "Y' questions, e.g. 'which module has the most open urgent defects', 'top owners by open "
+                "defects', 'which workflow phase has the most defects'. group_by is the dimension to rank; "
+                "status/priority/source filter the set first."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "group_by": {
+                        "type": "string",
+                        "enum": ["module", "owner", "priority", "issue_source", "promotion", "category", "status"],
+                    },
+                    "status": {"type": "string", "description": "Open, In Progress, or Closed"},
+                    "priority": {"type": "string", "description": "e.g. Urgent/Critical, High, Medium, Low"},
+                    "source": {"type": "string", "description": "Both, Smartsheet, or GitHub"},
+                    "limit": {"type": "integer"},
+                },
+                "required": ["group_by"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "aging_report",
+            "description": (
+                "Age analysis of defects by creation date (buckets 0-7, 8-30, 31-90, 90+ days) plus the "
+                "oldest ones. Use for 'oldest/stale/longest-open defects', 'how old are the open defects', "
+                "'aging'. Defaults to Open defects."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"status": {"type": "string", "description": "Open (default), In Progress, or Closed"}},
             },
         },
     },
