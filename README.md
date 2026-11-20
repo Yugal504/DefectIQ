@@ -14,16 +14,20 @@ Everything runs with **one command** and all configuration lives in a single
 
 ```powershell
 # 1. Install dependencies (one-time) into the project venv
-python -m venv .venv
+py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 
 # 2. Edit .env (credentials, repo/sheet URLs, Azure OpenAI, etc.)
 
 # 3. Run everything
-python main.py
+.\.venv\Scripts\python.exe main.py
 ```
 
-`python main.py` runs four services in order:
+Use Python 3.12 for the pinned dependencies. Virtual environments are not
+portable between Python versions; recreate `.venv` and reinstall dependencies
+when changing interpreters rather than reusing its installed native modules.
+
+`.\.venv\Scripts\python.exe main.py` runs four services in order:
 
 1. **GitHub** – open Edge/Chrome, log in, export issues to CSV.
 2. **Smartsheet** – log in, export the sheet to Excel.
@@ -34,6 +38,50 @@ python main.py
 Logins pause for you to complete any MFA/SSO in the browser window.
 
 > To start **only the dashboard** (no extraction): `.\.venv\Scripts\python.exe run.py`
+
+## Smartsheet service type
+
+Set one variable in `.env` to select the Smartsheet export interface:
+
+```dotenv
+SERVICE_TYPE=org
+```
+
+| Value | Export navigation |
+|-------|-------------------|
+| `org` (default) | File > Export > Export to Microsoft Excel |
+| `personal` | More options (three dots) > Export > Microsoft Excel |
+
+This setting selects the menu layout only; it does not switch saved credential
+sets or change the GitHub workflow. Set `SMARTSHEET_USERNAME`,
+`SMARTSHEET_PASSWORD`, and `SMARTSHEET_SHEET_URL` for the intended account.
+Choose the type matching the sheet's actual interface. Both modes wait for the
+Excel download before closing the browser and returning to Service 3.
+
+## Reset saved sessions
+
+Before changing credentials, stop the service and close its automation browser.
+Update `.env`, then run these commands from the project folder:
+
+```powershell
+# Optional: preview without changing any files
+.\.venv\Scripts\python.exe clear_sessions.py --dry-run
+
+# Reset saved automation sessions, then start the service
+.\.venv\Scripts\python.exe clear_sessions.py
+.\.venv\Scripts\python.exe main.py
+```
+
+The reset script reads `CHROME_PROFILE_DIR` and `REMOTE_DEBUG_PORT` from the
+project `.env`. It renames the entire automation profile to a timestamped sibling
+backup instead of deleting it. The next run creates a clean profile and uses
+the configured credentials; complete SSO/MFA in the browser when requested.
+**Both GitHub and Smartsheet sessions are reset**, including saved account
+choices and autofill data in that automation profile. Personal browser profiles,
+downloads, and workbooks are not changed. The backup still contains sensitive
+session data: keep it private and do not commit it. The script refuses to run
+while the configured debugging port is in use. Ensure the service and reset
+script use the same profile/port settings; do not override those in the shell.
 
 ## Demo accounts (dashboard)
 

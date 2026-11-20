@@ -61,6 +61,26 @@ _LOG_FILE_HANDLE = None  # type: ignore[var-annotated]
 _LOG_FILE_PATH = None  # type: ignore[var-annotated]
 
 
+class _TimestampedLog:
+    def __init__(self, stream):
+        self._stream = stream
+        self._line_start = True
+        self._lock = threading.Lock()
+
+    def write(self, data):
+        with self._lock:
+            for part in data.splitlines(keepends=True):
+                if self._line_start:
+                    self._stream.write(time.strftime("[%Y-%m-%d %H:%M:%S] "))
+                self._stream.write(part)
+                self._line_start = part.endswith("\n")
+        return len(data)
+
+    def flush(self):
+        with self._lock:
+            self._stream.flush()
+
+
 class _Tee:
     """A write-through stream that mirrors output to several streams."""
 
@@ -97,8 +117,9 @@ def _start_run_logging() -> Path:
     handle = open(path, "a", encoding="utf-8", buffering=1)
     _LOG_FILE_HANDLE = handle
     _LOG_FILE_PATH = path
-    sys.stdout = _Tee(sys.stdout, handle)
-    sys.stderr = _Tee(sys.stderr, handle)
+    timestamped_log = _TimestampedLog(handle)
+    sys.stdout = _Tee(sys.stdout, timestamped_log)
+    sys.stderr = _Tee(sys.stderr, timestamped_log)
     print("=" * 70)
     print(f"DefectIQ service run - {time.strftime('%Y-%m-%d %H:%M:%S')}")
     print(f"Log file: {path}")
@@ -160,6 +181,53 @@ def wait_for_login(client: CDP, mfa_timeout: int) -> str:
             prompted = True
         time.sleep(2)
     return client.eval("window.location.href").get("result", {}).get("value", "")
+
+
+def wait_for_github_issues(client: CDP, issues_url: str, mfa_timeout: int) -> None:
+    expected = urlparse(issues_url)
+    expected_repo = owner_repo_from_url(issues_url).removesuffix("/issues")
+    deadline = time.monotonic() + max(mfa_timeout, 5)
+    print(
+        "Waiting for the repository issues page. Complete corporate SSO/MFA "
+        "in the open browser if prompted..."
+    )
+    while time.monotonic() < deadline:
+        try:
+            page = client.eval(
+                """
+                (() => ({
+                    url: window.location.href,
+                    ready: document.readyState === 'complete',
+                    repository: document.querySelector(
+                        'meta[name="octolytics-dimension-repository_nwo"]'
+                    )?.content || '',
+                    login: !!document.querySelector('input[type="password"], #login_field')
+                }))()
+                """
+            ).get("result", {}).get("value", {})
+        except RuntimeError as exc:
+            if not any(message in str(exc).lower() for message in (
+                "navigated or closed", "execution context was destroyed",
+                "cannot find context",
+            )):
+                raise
+            time.sleep(1)
+            continue
+        current = urlparse(page.get("url", ""))
+        if (
+            current.scheme == expected.scheme
+            and current.netloc.lower() == expected.netloc.lower()
+            and current.path.rstrip("/").lower() == expected.path.rstrip("/").lower()
+            and page.get("ready")
+            and page.get("repository", "").lower() == expected_repo.lower()
+            and not page.get("login")
+        ):
+            return
+        time.sleep(1)
+    raise TimeoutError(
+        f"GitHub repository SSO/login did not complete within {max(mfa_timeout, 5)} "
+        "seconds. Complete corporate sign-in and confirm repository access, then retry."
+    )
 
 
 def run_issue_export(
@@ -265,9 +333,7 @@ def github_service(cfg: dict) -> Path | None:
 
         print(f"\n[2/3] Navigating to issues: {issues_url}")
         client.send("Page.navigate", {"url": issues_url})
-        time.sleep(3)
-        title = client.eval("document.title").get("result", {}).get("value", "")
-        print(f"Page title: {title}")
+        wait_for_github_issues(client, issues_url, cfg["mfa_timeout"])
 
         print("\n[3/3] Exporting issues to CSV...")
         exported = run_issue_export(
