@@ -199,7 +199,7 @@ tbody tr:hover{background:var(--hover)}
 .modal{position:fixed;inset:0;background:rgba(3,8,16,.68);display:flex;align-items:center;justify-content:center;z-index:50}
 .modal-card{background:#15233a;color:var(--text);border:1px solid var(--border);border-radius:14px;width:560px;max-width:92vw;max-height:88vh;overflow:auto;box-shadow:0 24px 70px rgba(0,0,0,.6)}
 /* wider popup for drill-downs that show a multi-column defect table */
-.modal.modal-lg .modal-card{width:1080px;max-width:94vw;max-height:90vh}
+.modal.modal-lg .modal-card{width:auto;max-width:94vw;max-height:90vh}
 .modal.modal-lg .modal-body .table-wrap{max-height:min(72vh,720px)}
 .modal-head{display:flex;justify-content:space-between;align-items:center;padding:16px 20px;border-bottom:1px solid var(--border)}
 .modal-head h3{margin:0;color:var(--navy)}
@@ -271,7 +271,10 @@ tbody tr:hover{background:var(--hover)}
 .perf-table th{background:var(--panel2);position:sticky;top:0;cursor:default;font-size:11px;text-transform:uppercase;letter-spacing:.3px;color:var(--muted);padding:7px 9px;text-align:left;border-bottom:1px solid var(--border);z-index:2}
 .perf-table td{padding:6px 9px;border-bottom:1px solid var(--line)}
 .perf-table td.num,.perf-table th.num{text-align:right;font-variant-numeric:tabular-nums}
-.perf-table td.rowlbl{font-weight:600;color:var(--navy);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.perf-table td.rowlbl{font-weight:600;color:var(--navy);max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.perf-table td.rowlbl::first-letter {
+  text-transform: uppercase;
+}
 .perf-table td.total{font-weight:700;color:var(--navy)}
 .perf-table td.cell-click{cursor:pointer;border-radius:4px}
 .perf-table td.cell-click:hover{outline:2px solid var(--accent);outline-offset:-2px}
